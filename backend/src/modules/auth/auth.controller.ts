@@ -31,10 +31,15 @@ export class AuthController {
   }
 
   private setAccessTokenCookie(res: Response, accessToken: string) {
-    res.cookie(this.config.getOrThrow<string>('auth.cookie.name'), accessToken, {
-      ...this.authCookieOptions(),
-      maxAge: this.config.getOrThrow<number>('auth.cookie.maxAgeSeconds') * 1000,
-    });
+    res.cookie(
+      this.config.getOrThrow<string>('auth.cookie.name'),
+      accessToken,
+      {
+        ...this.authCookieOptions(),
+        maxAge:
+          this.config.getOrThrow<number>('auth.cookie.maxAgeSeconds') * 1000,
+      },
+    );
   }
 
   private clearAccessTokenCookie(res: Response) {
@@ -52,7 +57,10 @@ export class AuthController {
 
   @Public()
   @Post('verify-otp')
-  async verifyOtp(@Body() dto: VerifyOtpDto, @Res({ passthrough: true }) res: Response) {
+  async verifyOtp(
+    @Body() dto: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const payload = await this.auth.verifyOtp(dto.phone, dto.code);
     this.setAccessTokenCookie(res, payload.accessToken);
     return payload;
