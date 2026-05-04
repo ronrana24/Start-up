@@ -1,0 +1,317 @@
+"use client";
+
+import type { AuthSession } from "@application/ports/auth-session";
+import { apiJsonAuthorized, apiJsonPost } from "@infrastructure/http/http-client";
+
+export type AdminRoleFilter = "BUYER" | "ADMIN" | "RIDER" | "ALL";
+export type AdminAnalyticsRange = "7d" | "30d" | "90d" | "all";
+export type ProductUnit = "PIECE" | "PACK";
+export type OrderStatus =
+  | "PLACED"
+  | "CONFIRMED"
+  | "PACKED"
+  | "OUT_FOR_DELIVERY"
+  | "DELIVERED"
+  | "CANCELLED";
+
+type ApiEnvelope<T> = { data: T };
+
+function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
+  if (body && typeof body === "object" && "data" in body) {
+    return (body as ApiEnvelope<T>).data;
+  }
+  return body as T;
+}
+
+function apiBaseUrl(): string {
+  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim();
+}
+
+export type AdminUser = {
+  id: string;
+  phone: string;
+  email: string | null;
+  name: string | null;
+  businessName: string;
+  businessType: string;
+  gstNumber: string | null;
+  role: AuthSession["role"];
+  createdAt: string;
+  updatedAt: string;
+  _count?: { orders: number; addresses: number };
+};
+
+export type AdminProduct = {
+  id: string;
+  name: string;
+  category: string;
+  unit: ProductUnit;
+  basePrice: string | number;
+  bulkPricingTiers: Array<{ minQty: number; price: number }>;
+  createdAt: string;
+  updatedAt: string;
+  inventory?: {
+    availableQty: number;
+    reservedQty: number;
+    warehouseId: string;
+  } | null;
+};
+
+export type AdminOrder = {
+  id: string;
+  status: OrderStatus;
+  deliveryType: "STANDARD" | "PRIORITY";
+  deliveryFee: string | number;
+  subtotalAmount: string | number;
+  totalAmount: string | number;
+  createdAt: string;
+  updatedAt: string;
+  user?: Pick<AdminUser, "id" | "phone" | "businessName" | "role">;
+  rider?: { id: string; name: string; phone: string } | null;
+  items: Array<{
+    id: string;
+    productId: string;
+    quantity: number;
+    priceApplied: string | number;
+  }>;
+};
+
+export type Paginated<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type AdminAnalytics = {
+  range: AdminAnalyticsRange;
+  totals: {
+    revenue: number;
+    orders: number;
+    buyers: number;
+    activeBuyers: number;
+    inactiveBuyers: number;
+    products: number;
+    averageOrderValue: number;
+  };
+  insights: Array<{ title: string; value: string; detail: string }>;
+  ordersByStatus: Array<{ status: OrderStatus; count: number }>;
+  revenueTrend: Array<{ date: string; revenue: number; orders: number }>;
+  repeatBuyerTrend: Array<{ date: string; newBuyers: number; repeatBuyers: number }>;
+  buyersByLocation: Array<{
+    city: string;
+    state: string;
+    location: string;
+    buyers: number;
+    orders: number;
+    revenue: number;
+  }>;
+  topBuyers: Array<{
+    userId: string;
+    businessName: string;
+    phone: string;
+    email: string | null;
+    orders: number;
+    revenue: number;
+    lastOrderAt: string | null;
+  }>;
+  topProducts: Array<{
+    productId: string;
+    name: string;
+    category: string;
+    quantity: number;
+    revenue: number;
+  }>;
+  topCategories: Array<{
+    category: string;
+    quantity: number;
+    revenue: number;
+  }>;
+  lowStock: Array<{
+    productId: string;
+    name: string;
+    category: string;
+    availableQty: number;
+    reservedQty: number;
+  }>;
+};
+
+export type AdminUserAnalytics = {
+  range: AdminAnalyticsRange;
+  profile: {
+    id: string;
+    phone: string;
+    email: string | null;
+    name: string | null;
+    businessName: string;
+    businessType: string;
+    gstNumber: string | null;
+    createdAt: string;
+    updatedAt: string;
+    location: { city: string; state: string; location: string };
+  };
+  totals: {
+    revenue: number;
+    orders: number;
+    completedOrders: number;
+    averageOrderValue: number;
+    itemsBought: number;
+    lastOrderAt: string | null;
+  };
+  insights: Array<{ title: string; value: string; detail: string }>;
+  purchaseTimeline: Array<{
+    date: string;
+    revenue: number;
+    orders: number;
+    quantity: number;
+  }>;
+  productsBought: Array<{
+    productId: string;
+    name: string;
+    category: string;
+    quantity: number;
+    revenue: number;
+    orders: number;
+    firstPurchasedAt: string;
+    lastPurchasedAt: string;
+  }>;
+  categoryBreakdown: Array<{
+    category: string;
+    quantity: number;
+    revenue: number;
+  }>;
+  recentOrders: Array<{
+    id: string;
+    status: OrderStatus;
+    totalAmount: number;
+    createdAt: string;
+    items: Array<{
+      productId: string;
+      name: string;
+      quantity: number;
+      revenue: number;
+    }>;
+  }>;
+};
+
+export type CreateAdminProductInput = {
+  name: string;
+  category: string;
+  unit: ProductUnit;
+  basePrice: number;
+  initialAvailableQty: number;
+  bulkPricingTiers: Array<{ minQty: number; price: number }>;
+};
+
+export async function adminLogin(input: {
+  email: string;
+  password: string;
+}): Promise<AuthSession> {
+  const body = unwrapBody(
+    await apiJsonPost<
+      | { accessToken: string; user: { id: string; phone: string | null; role: AuthSession["role"] } }
+      | ApiEnvelope<{
+          accessToken: string;
+          user: { id: string; phone: string | null; role: AuthSession["role"] };
+        }>
+    >(apiBaseUrl(), "/api/auth/admin/login", input),
+  );
+  return {
+    accessToken: body.accessToken,
+    userId: body.user.id,
+    phone: body.user.phone,
+    role: body.user.role,
+  };
+}
+
+export async function getAdminAnalytics(
+  range: AdminAnalyticsRange = "30d",
+): Promise<AdminAnalytics> {
+  const params = new URLSearchParams({ range });
+  return unwrapBody(
+    await apiJsonAuthorized<AdminAnalytics | ApiEnvelope<AdminAnalytics>>(
+      apiBaseUrl(),
+      `/api/admin/analytics?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function getAdminUserAnalytics(
+  userId: string,
+  range: AdminAnalyticsRange = "30d",
+): Promise<AdminUserAnalytics> {
+  const params = new URLSearchParams({ range });
+  return unwrapBody(
+    await apiJsonAuthorized<AdminUserAnalytics | ApiEnvelope<AdminUserAnalytics>>(
+      apiBaseUrl(),
+      `/api/admin/users/${userId}/analytics?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function listAdminProducts(
+  page = 1,
+  pageSize = 100,
+): Promise<Paginated<AdminProduct>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  return unwrapBody(
+    await apiJsonAuthorized<Paginated<AdminProduct> | ApiEnvelope<Paginated<AdminProduct>>>(
+      apiBaseUrl(),
+      `/api/products?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function createAdminProduct(
+  input: CreateAdminProductInput,
+): Promise<AdminProduct> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminProduct | ApiEnvelope<AdminProduct>>(
+      apiBaseUrl(),
+      "/api/products",
+      { method: "POST", body: input },
+    ),
+  );
+}
+
+export async function listAdminOrders(
+  page = 1,
+  pageSize = 100,
+): Promise<Paginated<AdminOrder>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  return unwrapBody(
+    await apiJsonAuthorized<Paginated<AdminOrder> | ApiEnvelope<Paginated<AdminOrder>>>(
+      apiBaseUrl(),
+      `/api/admin/orders?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function listAdminUsers(
+  role: AdminRoleFilter = "BUYER",
+  page = 1,
+  pageSize = 100,
+): Promise<Paginated<AdminUser>> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    role,
+  });
+  return unwrapBody(
+    await apiJsonAuthorized<Paginated<AdminUser> | ApiEnvelope<Paginated<AdminUser>>>(
+      apiBaseUrl(),
+      `/api/admin/users?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}

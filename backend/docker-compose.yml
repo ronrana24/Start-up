@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: wholesale
+    ports:
+      - '5433:5432'
+    volumes:
+      - wholesale_pg:/var/lib/postgresql/data
+
+volumes:
+  wholesale_pg:

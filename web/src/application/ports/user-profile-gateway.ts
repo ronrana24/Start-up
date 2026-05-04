@@ -1,0 +1,53 @@
+export const BUSINESS_TYPES = ["RESTAURANT", "EVENT_PLANNER", "OTHER"] as const;
+export type BusinessType = (typeof BUSINESS_TYPES)[number];
+
+export type UpdateUserProfileInput = {
+  businessName: string;
+  businessType: BusinessType;
+  /** Omit or leave empty to skip updating GST */
+  gstNumber?: string | null;
+};
+
+export type CreateUserAddressInput = {
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault?: boolean;
+};
+
+export type UserAddress = {
+  id: string;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault: boolean;
+};
+
+export type UserProfile = {
+  id: string;
+  phone: string | null;
+  email?: string | null;
+  name?: string | null;
+  businessName: string;
+  businessType: BusinessType;
+  gstNumber?: string | null;
+  role: "BUYER" | "ADMIN" | "RIDER";
+  addresses: UserAddress[];
+};
+
+export type UserProfileGateway = {
+  getProfile(accessToken: string | null): Promise<UserProfile>;
+  listAddresses(accessToken: string | null): Promise<UserAddress[]>;
+  updateProfile(
+    accessToken: string | null,
+    input: UpdateUserProfileInput,
+  ): Promise<void>;
+  createAddress(
+    accessToken: string | null,
+    input: CreateUserAddressInput,
+  ): Promise<UserAddress>;
+};

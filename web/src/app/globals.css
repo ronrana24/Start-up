@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-primary: #1f7a63;
+  --color-primary-dark: #17614e;
+  --color-primary-light: #e6f4f1;
+
+  --color-secondary: #6b7280;
+  --color-secondary-border: #e5e7eb;
+  --color-secondary-bg: #f9fafb;
+
+  --color-page: #f3f4f6;
+  --color-card: #ffffff;
+
+  --color-heading: #111827;
+  --color-muted: #9ca3af;
+
+  --color-success: #22c55e;
+  --color-success-bg: #dcfce7;
+
+  --color-disabled-bg: #f3f4f6;
+  --color-disabled-text: #9ca3af;
+
+  --color-default: #e5e7eb;
+  --color-border-focus: #1f7a63;
+
+  --color-chip-active: #1f7a63;
+  --color-chip-inactive: #f3f4f6;
+  --color-chip-inactive-text: #6b7280;
+
+  --color-input-bg: #f9fafb;
+  --color-input-border: #e5e7eb;
+  --color-input-placeholder: #9ca3af;
+
+  --color-catalog-green: #0f5132;
+  --color-catalog-green-muted: rgba(15, 81, 50, 0.1);
+  --color-catalog-green-border: rgba(15, 81, 50, 0.2);
+  --color-catalog-green-hover: #146c43;
+  --color-catalog-blue: #052c65;
+  --color-catalog-blue-light: #cfe2ff;
+  --color-catalog-surface: #f8f9fa;
+  --color-catalog-border: #dee2e6;
+  --color-catalog-input: #f2f2f2;
+  --color-catalog-text: #212529;
+  --color-catalog-text-muted: #6c757d;
+  --shadow-catalog-focus: 0 0 0 3px rgba(15, 81, 50, 0.2);
+  --shadow-catalog-cart: 0 8px 20px rgba(5, 44, 101, 0.3);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background-color: var(--color-page);
+  color: var(--color-heading);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Order confirmation: animated success check */
+@keyframes orderConfirmCheckPop {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  65% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes orderConfirmCheckDraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.order-success-glyph {
+  animation: orderConfirmCheckPop 0.55s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+
+.order-success-check-path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: orderConfirmCheckDraw 0.42s ease forwards 0.18s;
+}
+
+@keyframes onboardingWelcomeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.onboarding-welcome-animate {
+  animation: onboardingWelcomeIn 0.55s ease-out both;
+}
