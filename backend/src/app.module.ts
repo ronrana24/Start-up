@@ -4,7 +4,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
-import configuration from './config/configuration';
+import configuration, { validateEnvironment } from './config/configuration';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
@@ -23,6 +23,7 @@ import { HealthModule } from './health/health.module';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
+      validate: validateEnvironment,
     }),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],

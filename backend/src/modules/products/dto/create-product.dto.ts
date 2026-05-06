@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Length,
   Min,
   ValidateNested,
@@ -33,6 +34,14 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => BulkPricingTierDto)
   bulkPricingTiers!: BulkPricingTierDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUrl(
+    { require_protocol: true, protocols: ['http', 'https'] },
+    { each: true },
+  )
+  imageUrls?: string[];
 
   @IsOptional()
   @Type(() => Number)

@@ -5,6 +5,7 @@ import {
   pricePerCaseCents,
   productBulkTiersSorted,
   productGalleryUrls,
+  productHasSpecialPrice,
   subtotalCentsForCases,
 } from "@domain/product-pricing";
 import type { BulkTier, Product } from "@domain/product";
@@ -81,6 +82,7 @@ function ProductDetailContent({
   const unitPrice = pricePerCaseCents(data, cases);
   const subtotal = subtotalCentsForCases(data, cases);
   const unitLabel = data.unitLabel ?? "unit";
+  const hasSpecialPrice = productHasSpecialPrice(data);
 
   function clampCases(n: number): number {
     return Math.max(moq, Math.min(999, Math.floor(n)));
@@ -104,7 +106,7 @@ function ProductDetailContent({
     }
   }
 
-  const showWholesale = tiers.length > 0;
+  const showQuantityControls = tiers.length > 0;
 
   return (
     <div className="relative flex flex-col pb-36 lg:pb-10">
@@ -227,6 +229,14 @@ function ProductDetailContent({
             )}
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            {hasSpecialPrice && data.specialPricing?.originalPriceCents ? (
+              <span className="mb-1 text-sm font-semibold text-muted line-through">
+                {formatMoney(
+                  data.specialPricing.originalPriceCents,
+                  data.currency,
+                )}
+              </span>
+            ) : null}
             <span className="text-2xl font-bold text-heading">
               {formatMoney(unitPrice, data.currency)}
             </span>
@@ -236,72 +246,88 @@ function ProductDetailContent({
               </span>
             ) : null}
           </div>
+          {hasSpecialPrice ? (
+            <div className="inline-flex w-fit rounded-full border border-primary/20 bg-primary-light px-2.5 py-1 text-[11px] font-bold text-primary">
+              Special price for you
+            </div>
+          ) : null}
           {data.packSizeNote ? (
             <p className="text-xs text-muted">{data.packSizeNote}</p>
           ) : null}
-          {!showWholesale ? (
+          {!showQuantityControls ? (
             <p className="text-sm leading-relaxed text-secondary">
               {data.description}
             </p>
           ) : null}
         </section>
 
-        {showWholesale ? (
+        {showQuantityControls ? (
           <section
             id="wholesale-controls"
             className="mt-2 space-y-4 border-y border-default/60 bg-card p-4 sm:rounded-xl sm:border sm:border-default/60"
           >
             <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
               <IconTags className="h-4 w-4 text-primary" />
-              Bulk pricing tiers
+              {hasSpecialPrice ? "Special pricing" : "Bulk pricing tiers"}
             </h2>
-            <div className="overflow-hidden rounded-xl border border-default/60">
-              <div className="grid grid-cols-3 gap-0 bg-secondary-bg px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted">
-                <span>Quantity</span>
-                <span className="text-center">Price / case</span>
-                <span className="text-right">Savings</span>
+            {hasSpecialPrice ? (
+              <div className="rounded-xl border border-primary/20 bg-primary-light/50 p-3">
+                <p className="text-sm font-bold text-heading">
+                  {formatMoney(unitPrice, data.currency)} / {unitLabel}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-secondary">
+                  Your special price overrides bulk pricing for this product.
+                </p>
               </div>
-              {tiers.map((t, idx) => {
-                const rowActive = activeIdx === idx;
-                return (
-                  <div
-                    key={`${t.minCases}-${t.maxCases ?? "inf"}`}
-                    className={cn(
-                      "grid grid-cols-3 items-center border-t border-default/40 px-3 py-3 text-xs",
-                      rowActive && "bg-primary-light/80",
-                    )}
-                  >
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-default/60">
+                <div className="grid grid-cols-3 gap-0 bg-secondary-bg px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                  <span>Quantity</span>
+                  <span className="text-center">Price / case</span>
+                  <span className="text-right">Savings</span>
+                </div>
+                {tiers.map((t, idx) => {
+                  const rowActive = activeIdx === idx;
+                  return (
                     <div
+                      key={`${t.minCases}-${t.maxCases ?? "inf"}`}
                       className={cn(
-                        "font-semibold",
-                        rowActive ? "text-primary" : "text-heading",
+                        "grid grid-cols-3 items-center border-t border-default/40 px-3 py-3 text-xs",
+                        rowActive && "bg-primary-light/80",
                       )}
                     >
-                      {tierQuantityLabel(t)}
-                      {rowActive ? (
-                        <IconCheckCircle className="ml-1 inline align-middle text-primary" />
-                      ) : null}
+                      <div
+                        className={cn(
+                          "font-semibold",
+                          rowActive ? "text-primary" : "text-heading",
+                        )}
+                      >
+                        {tierQuantityLabel(t)}
+                        {rowActive ? (
+                          <IconCheckCircle className="ml-1 inline align-middle text-primary" />
+                        ) : null}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-center font-bold",
+                          rowActive ? "text-primary" : "text-heading",
+                        )}
+                      >
+                        {formatMoney(t.priceCents, data.currency)}
+                      </div>
+                      <div
+                        className={cn(
+                          "text-right font-semibold",
+                          rowActive ? "text-primary" : "text-muted",
+                        )}
+                      >
+                        {t.savingsLabel ?? "—"}
+                      </div>
                     </div>
-                    <div
-                      className={cn(
-                        "text-center font-bold",
-                        rowActive ? "text-primary" : "text-heading",
-                      )}
-                    >
-                      {formatMoney(t.priceCents, data.currency)}
-                    </div>
-                    <div
-                      className={cn(
-                        "text-right font-semibold",
-                        rowActive ? "text-primary" : "text-muted",
-                      )}
-                    >
-                      {t.savingsLabel ?? "—"}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="rounded-xl border border-default/60 bg-page p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -480,7 +506,7 @@ function ProductDetailContent({
         ) : null}
       </div>
 
-      {showWholesale ? (
+      {showQuantityControls ? (
         <div
           className={cn(
             "fixed left-0 right-0 z-20 border-t border-default bg-card px-3 py-3 shadow-[0_-4px_10px_rgba(0,0,0,0.06)]",

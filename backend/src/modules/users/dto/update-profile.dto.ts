@@ -1,5 +1,12 @@
 import { BusinessType } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, Length, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+} from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -18,4 +25,8 @@ export class UpdateProfileDto {
     message: 'gstNumber must be a valid 15-char GST format',
   })
   gstNumber?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isOnboardingCompleted?: boolean;
 }

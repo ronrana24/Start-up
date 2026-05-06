@@ -75,6 +75,7 @@ export function AdminUsersScreen() {
                   <th className="px-4 py-3">Addresses</th>
                   <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3">Insights</th>
+                  <th className="px-4 py-3">Pricing</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-catalog-border">
@@ -126,12 +127,26 @@ export function AdminUsersScreen() {
                         </span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      {user.role === "BUYER" ? (
+                        <Link
+                          href={`/admin/users/${user.id}/pricing`}
+                          className="text-xs font-bold text-catalog-blue hover:underline"
+                        >
+                          Special pricing
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-catalog-text-muted">
+                          Not available
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {data?.items.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="px-4 py-10 text-center text-catalog-text-muted"
                     >
                       No users found.

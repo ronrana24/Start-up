@@ -3,12 +3,14 @@
 import { DomainError } from "@domain/errors";
 import { apiJsonAuthorized } from "@infrastructure/http/http-client";
 import { useAuthStore } from "@presentation/state/auth-store";
+import { useOnboardingStore } from "@presentation/state/onboarding-store";
 import { useEffect } from "react";
 
 type ApiUser = {
   id: string;
   phone: string | null;
   role: "BUYER" | "ADMIN" | "RIDER";
+  isOnboardingCompleted: boolean;
 };
 
 type ApiEnvelope<T> = {
@@ -22,11 +24,6 @@ function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
   return body as T;
 }
 
-function readApiMode(): "mock" | "http" {
-  const raw = process.env.NEXT_PUBLIC_API_MODE?.toLowerCase();
-  return raw === "http" ? "http" : "mock";
-}
-
 function readApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim();
 }
@@ -34,24 +31,20 @@ function readApiBaseUrl(): string {
 export function SessionBootstrap() {
   const setSession = useAuthStore((s) => s.setSession);
   const markSessionChecked = useAuthStore((s) => s.markSessionChecked);
+  const setOnboardingCompleted = useOnboardingStore((s) => s.setCompleted);
 
   useEffect(() => {
-    if (readApiMode() !== "http") {
-      markSessionChecked();
-      return;
-    }
-
     let cancelled = false;
 
     async function bootstrap() {
       try {
+        console.log("calling bootstrap");
         const user = unwrapBody(
           await apiJsonAuthorized<ApiUser | ApiEnvelope<ApiUser>>(
             readApiBaseUrl(),
             "/api/users/me",
             {
-              method: "GET",
-              accessToken: null,
+              method: "GET"
             },
           ),
         );
@@ -61,7 +54,9 @@ export function SessionBootstrap() {
           userId: user.id,
           phone: user.phone,
           role: user.role,
+          isOnboardingCompleted: user.isOnboardingCompleted,
         });
+        setOnboardingCompleted(user.isOnboardingCompleted);
       } catch (error) {
         if (
           cancelled ||
@@ -81,7 +76,7 @@ export function SessionBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [markSessionChecked, setSession]);
+  }, [markSessionChecked, setOnboardingCompleted, setSession]);
 
   return null;
 }

@@ -19,4 +19,7 @@ export async function completeOnboarding(
     ...input.address,
     isDefault: input.address.isDefault ?? true,
   });
+  await deps.userProfileGateway.updateProfile(input.accessToken, {
+    isOnboardingCompleted: true,
+  });
 }

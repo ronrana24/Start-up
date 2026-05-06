@@ -36,7 +36,8 @@ export function OnboardingScreen() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const phone = useAuthStore((s) => s.phone);
-  const completed = useOnboardingStore((s) => s.completed);
+  const completed = useAuthStore((s) => s.isOnboardingCompleted);
+  const markOnboardingCompleted = useAuthStore((s) => s.markOnboardingCompleted);
   const complete = useOnboardingStore((s) => s.complete);
   const onboardingMutation = useCompleteOnboardingMutation();
 
@@ -125,6 +126,7 @@ export function OnboardingScreen() {
   }
 
   function handleFinish() {
+    markOnboardingCompleted();
     complete();
     router.push("/catalog");
   }

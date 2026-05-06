@@ -197,6 +197,7 @@ export function CheckoutScreen() {
   const effectiveDeliveryDateId = deliveryDateId ?? deliveryDates?.[0]?.id ?? null;
 
   const itemCount = useMemo(() => lines.reduce((n, l) => n + l.quantity, 0), [lines]);
+  const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
   const estTaxCents = Math.round(subtotalCents * EST_TAX_RATE);
   const totalWithTaxCents = subtotalCents + estTaxCents;
@@ -259,6 +260,15 @@ export function CheckoutScreen() {
           unitPriceCents: l.unitPriceCents,
           title: l.title,
         })),
+        address: {
+          line1,
+          line2: attention.trim() ? `Attn: ${attention.trim()}` : undefined,
+          city,
+          state: stateRegion,
+          pincode: postal,
+          isDefault: false,
+        },
+        deliveryType: "STANDARD",
       });
       clearCart();
       router.push(`/orders/${order.id}/confirmation`);
@@ -549,9 +559,27 @@ export function CheckoutScreen() {
                           Qty: {line.quantity}
                         </span>
                         <span className="text-sm font-bold text-heading">
-                          {formatMoney(line.unitPriceCents * line.quantity)}
+                          {formatMoney(
+                            line.unitPriceCents * line.quantity,
+                            line.currency,
+                          )}
                         </span>
                       </div>
+                      {line.pricingSource === "SPECIAL" ? (
+                        <div className="mt-1 flex items-center justify-between">
+                          <span className="rounded bg-primary-light px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                            {line.specialPricingLabel ?? "Special price for you"}
+                          </span>
+                          {line.originalUnitPriceCents ? (
+                            <span className="text-[10px] text-muted line-through">
+                              {formatMoney(
+                                line.originalUnitPriceCents,
+                                line.currency,
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </li>
                 ))}
@@ -661,7 +689,9 @@ export function CheckoutScreen() {
           <span className="text-xs font-medium text-muted">
             Subtotal ({itemCount} {itemCount === 1 ? "item" : "items"})
           </span>
-          <span className="text-sm font-semibold text-heading">{formatMoney(subtotalCents)}</span>
+          <span className="text-sm font-semibold text-heading">
+            {formatMoney(subtotalCents, cartCurrency)}
+          </span>
         </div>
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">Shipping &amp; delivery</span>
@@ -669,11 +699,15 @@ export function CheckoutScreen() {
         </div>
         <div className="mb-3 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">Est. taxes</span>
-          <span className="text-sm font-semibold text-heading">{formatMoney(estTaxCents)}</span>
+          <span className="text-sm font-semibold text-heading">
+            {formatMoney(estTaxCents, cartCurrency)}
+          </span>
         </div>
         <div className="mb-4 flex items-center justify-between border-t border-default/40 pt-2">
           <span className="text-sm font-bold text-heading">Total</span>
-          <span className="text-xl font-bold text-primary">{formatMoney(totalWithTaxCents)}</span>
+          <span className="text-xl font-bold text-primary">
+            {formatMoney(totalWithTaxCents, cartCurrency)}
+          </span>
         </div>
         {error ? (
           <p className="mb-3 text-center text-sm text-red-600 dark:text-red-400" role="alert">

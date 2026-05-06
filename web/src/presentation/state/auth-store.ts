@@ -10,7 +10,9 @@ type AuthState = {
   hasCheckedSession: boolean;
   userId: string | null;
   role: AuthSession["role"] | null;
+  isOnboardingCompleted: boolean;
   setSession: (session: AuthSession) => void;
+  markOnboardingCompleted: () => void;
   markSessionChecked: () => void;
   clearSession: () => void;
 };
@@ -22,6 +24,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   hasCheckedSession: false,
   userId: null,
   role: null,
+  isOnboardingCompleted: false,
   setSession: (session: AuthSession) =>
     set({
       phone: session.phone,
@@ -30,7 +33,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       hasCheckedSession: true,
       userId: session.userId,
       role: session.role,
+      isOnboardingCompleted: session.isOnboardingCompleted,
     }),
+  markOnboardingCompleted: () => set({ isOnboardingCompleted: true }),
   markSessionChecked: () => set({ hasCheckedSession: true }),
   clearSession: () =>
     set({
@@ -40,5 +45,6 @@ export const useAuthStore = create<AuthState>((set) => ({
       hasCheckedSession: true,
       userId: null,
       role: null,
+      isOnboardingCompleted: false,
     }),
 }));

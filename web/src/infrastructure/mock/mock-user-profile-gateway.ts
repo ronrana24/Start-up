@@ -17,7 +17,7 @@ let mockAddresses: UserAddress[] = [
   },
 ];
 
-const mockProfile: UserProfile = {
+let mockProfile: UserProfile = {
   id: DEMO_USER_ID,
   phone: "+919999999999",
   email: null,
@@ -25,6 +25,7 @@ const mockProfile: UserProfile = {
   businessName: "Demo Restaurant Outlet",
   businessType: "RESTAURANT",
   gstNumber: null,
+  isOnboardingCompleted: false,
   role: "BUYER",
   addresses: mockAddresses,
 };
@@ -41,8 +42,20 @@ export function createMockUserProfileGateway(): UserProfileGateway {
     async listAddresses() {
       return mockAddresses;
     },
-    async updateProfile() {
-      /* Profile editing is intentionally disabled on the account page. */
+    async updateProfile(_accessToken, input) {
+      mockProfile = {
+        ...mockProfile,
+        ...(input.businessName !== undefined && {
+          businessName: input.businessName,
+        }),
+        ...(input.businessType !== undefined && {
+          businessType: input.businessType,
+        }),
+        ...(input.gstNumber !== undefined && { gstNumber: input.gstNumber }),
+        ...(input.isOnboardingCompleted !== undefined && {
+          isOnboardingCompleted: input.isOnboardingCompleted,
+        }),
+      };
     },
     async createAddress(_accessToken, input) {
       if (input.isDefault) {

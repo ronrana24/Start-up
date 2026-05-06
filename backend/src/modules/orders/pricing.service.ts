@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeliveryType, Product } from '@prisma/client';
+import { DeliveryType, Product, User } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { PricingRulesService } from '../pricing-rules/pricing-rules.service';
 
 export type BulkTier = { minQty: number; price: number };
 
@@ -10,11 +11,15 @@ export type PricedLine = {
   quantity: number;
   unitPrice: Prisma.Decimal;
   lineTotal: Prisma.Decimal;
+  pricingSnapshot: Prisma.InputJsonValue;
 };
 
 @Injectable()
 export class PricingService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly pricingRules: PricingRulesService,
+  ) {}
 
   lineUnitPrice(product: Product, quantity: number): Prisma.Decimal {
     const tiers = product.bulkPricingTiers as unknown;
@@ -58,25 +63,17 @@ export class PricingService {
     return raw.gt(minDec) ? raw : minDec;
   }
 
-  computeOrderTotals(
+  async computeOrderTotals(
+    user: User,
     lines: { product: Product; quantity: number }[],
     deliveryType: DeliveryType,
-  ): {
+  ): Promise<{
     pricedLines: PricedLine[];
     subtotal: Prisma.Decimal;
     deliveryFee: Prisma.Decimal;
     total: Prisma.Decimal;
-  } {
-    const pricedLines: PricedLine[] = lines.map(({ product, quantity }) => {
-      const unitPrice = this.lineUnitPrice(product, quantity);
-      const lineTotal = unitPrice.mul(new Prisma.Decimal(quantity));
-      return {
-        productId: product.id,
-        quantity,
-        unitPrice,
-        lineTotal,
-      };
-    });
+  }> {
+    const pricedLines = await this.pricingRules.resolveOrderLines(user, lines);
     let subtotal = new Prisma.Decimal(0);
     for (const l of pricedLines) {
       subtotal = subtotal.add(l.lineTotal);

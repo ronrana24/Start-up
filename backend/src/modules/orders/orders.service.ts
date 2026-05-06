@@ -86,7 +86,7 @@ export class OrdersService {
     });
 
     const { pricedLines, subtotal, deliveryFee, total } =
-      this.pricing.computeOrderTotals(lines, dto.deliveryType);
+      await this.pricing.computeOrderTotals(user, lines, dto.deliveryType);
 
     const addressSnapshot = {
       line1: address.line1,
@@ -120,6 +120,7 @@ export class OrdersService {
                 productId: l.productId,
                 quantity: l.quantity,
                 priceApplied: l.unitPrice,
+                pricingSnapshot: l.pricingSnapshot,
               })),
             },
           },

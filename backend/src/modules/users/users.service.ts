@@ -17,6 +17,7 @@ const userProfileSelect = {
   businessName: true,
   businessType: true,
   gstNumber: true,
+  isOnboardingCompleted: true,
   role: true,
   addresses: true,
   createdAt: true,
@@ -45,6 +46,9 @@ export class UsersService {
           businessType: dto.businessType,
         }),
         ...(dto.gstNumber !== undefined && { gstNumber: dto.gstNumber }),
+        ...(dto.isOnboardingCompleted !== undefined && {
+          isOnboardingCompleted: dto.isOnboardingCompleted,
+        }),
       },
       select: userProfileSelect,
     });

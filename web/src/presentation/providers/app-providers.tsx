@@ -8,15 +8,8 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { useState } from "react";
 import { SessionBootstrap } from "./session-bootstrap";
 
-function MaybeGoogleOAuthProvider({ children }: { children: React.ReactNode }) {
-  const clientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "").trim();
-  if (!clientId) {
-    return <>{children}</>;
-  }
-  return <GoogleOAuthProvider clientId={clientId}>{children}</GoogleOAuthProvider>;
-}
-
 export function AppProviders({ children }: { children: React.ReactNode }) {
+  const clientId = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "").trim();
   const [deps] = useState(() => createAppDependencies());
   const [queryClient] = useState(
     () =>
@@ -31,16 +24,19 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <MaybeGoogleOAuthProvider>
+    <GoogleOAuthProvider clientId={clientId}>
       <AppDependenciesProvider value={deps}>
         <QueryClientProvider client={queryClient}>
           <SessionBootstrap />
           <div className="flex min-h-full flex-1 flex-col">{children}</div>
           {process.env.NODE_ENV === "development" ? (
-            <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
+            <ReactQueryDevtools
+              initialIsOpen={false}
+              buttonPosition="bottom-left"
+            />
           ) : null}
         </QueryClientProvider>
       </AppDependenciesProvider>
-    </MaybeGoogleOAuthProvider>
+    </GoogleOAuthProvider>
   );
 }

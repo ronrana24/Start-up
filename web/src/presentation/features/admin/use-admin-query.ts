@@ -15,5 +15,7 @@ export function useAdminQuery<T>(
     data: query.data ?? null,
     error: query.error instanceof Error ? query.error.message : null,
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
   };
 }

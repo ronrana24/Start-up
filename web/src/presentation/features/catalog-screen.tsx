@@ -2,6 +2,7 @@
 
 import {
   pricePerCaseCents,
+  productHasSpecialPrice,
   productBulkTiersSorted,
 } from "@domain/product-pricing";
 import type { Product } from "@domain/product";
@@ -54,6 +55,7 @@ function unitSubtitle(p: Product): string {
 }
 
 function tierHint(p: Product): { label: string; price: string } | null {
+  if (productHasSpecialPrice(p)) return null;
   const tiers = productBulkTiersSorted(p);
   if (!tiers.length) return null;
   const t = tiers[0]!;
@@ -307,9 +309,25 @@ export function CatalogScreen() {
                     </p>
                   </div>
                   <div className="mt-auto flex items-center justify-between pt-1">
-                    <span className="text-sm font-bold text-catalog-text">
-                      {formatMoney(p.priceCents, p.currency)}
-                    </span>
+                    <div>
+                      {productHasSpecialPrice(p) &&
+                      p.specialPricing?.originalPriceCents ? (
+                        <span className="block text-[10px] font-semibold text-catalog-text-muted line-through">
+                          {formatMoney(
+                            p.specialPricing.originalPriceCents,
+                            p.currency,
+                          )}
+                        </span>
+                      ) : null}
+                      <span className="text-sm font-bold text-catalog-text">
+                        {formatMoney(p.priceCents, p.currency)}
+                      </span>
+                      {productHasSpecialPrice(p) ? (
+                        <span className="block text-[9px] font-bold text-catalog-green">
+                          Special price for you
+                        </span>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => quickAdd(p, e)}
@@ -422,6 +440,7 @@ function CatalogProductCard({
   const out = p.inStock === false;
   const hint = tierHint(p);
   const badges = p.badges ?? [];
+  const hasSpecialPrice = productHasSpecialPrice(p);
 
   return (
     <div
@@ -496,6 +515,11 @@ function CatalogProductCard({
 
         <div className="mt-1 flex items-end justify-between">
           <div>
+            {hasSpecialPrice && p.specialPricing?.originalPriceCents ? (
+              <span className="block text-[10px] font-semibold text-catalog-text-muted line-through">
+                {formatMoney(p.specialPricing.originalPriceCents, p.currency)}
+              </span>
+            ) : null}
             <span className="text-sm font-bold text-catalog-text">
               {formatMoney(
                 pricePerCaseCents(
@@ -508,6 +532,11 @@ function CatalogProductCard({
             <span className="block text-[9px] text-catalog-text-muted">
               {unitSubtitle(p)}
             </span>
+            {hasSpecialPrice ? (
+              <span className="mt-0.5 block text-[9px] font-bold text-catalog-green">
+                Special price for you
+              </span>
+            ) : null}
           </div>
         </div>
 

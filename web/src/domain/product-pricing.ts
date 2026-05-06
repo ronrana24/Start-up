@@ -1,5 +1,9 @@
 import type { BulkTier, Product } from "@domain/product";
 
+export function productHasSpecialPrice(product: Product): boolean {
+  return product.pricingSource === "SPECIAL" && Boolean(product.specialPricing);
+}
+
 export function productBulkTiersSorted(product: Product): BulkTier[] {
   const tiers = product.bulkTiers ?? [];
   return [...tiers].sort((a, b) => a.minCases - b.minCases);
@@ -24,6 +28,9 @@ export function productGalleryUrls(product: Product): string[] {
 }
 
 export function pricePerCaseCents(product: Product, cases: number): number {
+  if (productHasSpecialPrice(product)) {
+    return product.specialPricing?.effectivePriceCents ?? product.priceCents;
+  }
   const tiers = sortedTiers(product);
   if (tiers.length === 0) {
     return product.priceCents;
@@ -43,6 +50,7 @@ export function activeTierIndex(
   product: Product,
   cases: number,
 ): number | null {
+  if (productHasSpecialPrice(product)) return null;
   const tiers = sortedTiers(product);
   if (tiers.length === 0) return null;
   const safe = Math.max(product.moqCases ?? 1, cases);

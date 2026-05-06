@@ -1,10 +1,16 @@
 "use client";
 
 import type { AuthSession } from "@application/ports/auth-session";
-import { apiJsonAuthorized, apiJsonPost } from "@infrastructure/http/http-client";
+import { DomainError } from "@domain/errors";
+import {
+  apiJsonAuthorized,
+  apiJsonPost,
+  readApiErrorMessage,
+} from "@infrastructure/http/http-client";
 
 export type AdminRoleFilter = "BUYER" | "ADMIN" | "RIDER" | "ALL";
 export type AdminAnalyticsRange = "7d" | "30d" | "90d" | "all";
+export type PricingDiscountType = "PERCENT_OFF" | "AMOUNT_OFF";
 export type ProductUnit = "PIECE" | "PACK";
 export type OrderStatus =
   | "PLACED"
@@ -27,6 +33,12 @@ function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim();
 }
 
+function apiUrl(path: string): string {
+  const base = apiBaseUrl().replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return base ? `${base}${normalizedPath}` : normalizedPath;
+}
+
 export type AdminUser = {
   id: string;
   phone: string;
@@ -47,6 +59,7 @@ export type AdminProduct = {
   category: string;
   unit: ProductUnit;
   basePrice: string | number;
+  imageUrls?: string[];
   bulkPricingTiers: Array<{ minQty: number; price: number }>;
   createdAt: string;
   updatedAt: string;
@@ -199,8 +212,50 @@ export type CreateAdminProductInput = {
   category: string;
   unit: ProductUnit;
   basePrice: number;
+  imageUrls: string[];
   initialAvailableQty: number;
   bulkPricingTiers: Array<{ minQty: number; price: number }>;
+};
+
+export type AdminPricingRule = {
+  id: string;
+  userId: string;
+  productId: string;
+  discountType: PricingDiscountType;
+  discountValue: string | number;
+  isActive: boolean;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product?: AdminProduct;
+  updatedByAdmin?: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    businessName: string;
+  } | null;
+};
+
+export type AdminPricingRuleAudit = {
+  id: string;
+  action: "CREATED" | "UPDATED" | "DISABLED" | "ENABLED";
+  oldValue: unknown;
+  newValue: unknown;
+  reason: string;
+  createdAt: string;
+  changedByAdmin?: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    businessName: string;
+  } | null;
+};
+
+export type UpsertAdminPricingRuleInput = {
+  discountType: PricingDiscountType;
+  discountValue: number;
+  reason: string;
+  adminNote?: string;
 };
 
 export async function adminLogin(input: {
@@ -209,10 +264,23 @@ export async function adminLogin(input: {
 }): Promise<AuthSession> {
   const body = unwrapBody(
     await apiJsonPost<
-      | { accessToken: string; user: { id: string; phone: string | null; role: AuthSession["role"] } }
+      | {
+          accessToken: string;
+          user: {
+            id: string;
+            phone: string | null;
+            role: AuthSession["role"];
+            isOnboardingCompleted?: boolean;
+          };
+        }
       | ApiEnvelope<{
           accessToken: string;
-          user: { id: string; phone: string | null; role: AuthSession["role"] };
+          user: {
+            id: string;
+            phone: string | null;
+            role: AuthSession["role"];
+            isOnboardingCompleted?: boolean;
+          };
         }>
     >(apiBaseUrl(), "/api/auth/admin/login", input),
   );
@@ -221,6 +289,7 @@ export async function adminLogin(input: {
     userId: body.user.id,
     phone: body.user.phone,
     role: body.user.role,
+    isOnboardingCompleted: body.user.isOnboardingCompleted ?? false,
   };
 }
 
@@ -280,6 +349,31 @@ export async function createAdminProduct(
   );
 }
 
+export async function uploadAdminProductImages(files: File[]): Promise<string[]> {
+  if (files.length === 0) return [];
+  const body = new FormData();
+  for (const file of files) {
+    body.append("images", file);
+  }
+  const res = await fetch(apiUrl("/api/products/uploads"), {
+    method: "POST",
+    body,
+    credentials: "include",
+  });
+  if (!res.ok) {
+    throw new DomainError(
+      res.status === 401 ? "UNAUTHORIZED" : "INVALID_INPUT",
+      await readApiErrorMessage(res),
+    );
+  }
+  const payload = unwrapBody(
+    (await res.json()) as
+      | { imageUrls: string[] }
+      | ApiEnvelope<{ imageUrls: string[] }>,
+  );
+  return payload.imageUrls;
+}
+
 export async function listAdminOrders(
   page = 1,
   pageSize = 100,
@@ -313,5 +407,57 @@ export async function listAdminUsers(
       `/api/admin/users?${params.toString()}`,
       { method: "GET" },
     ),
+  );
+}
+
+export async function listUserPricingRules(
+  userId: string,
+): Promise<AdminPricingRule[]> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminPricingRule[] | ApiEnvelope<AdminPricingRule[]>>(
+      apiBaseUrl(),
+      `/api/admin/users/${userId}/pricing-rules`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function upsertUserProductPricingRule(
+  userId: string,
+  productId: string,
+  input: UpsertAdminPricingRuleInput,
+): Promise<AdminPricingRule> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminPricingRule | ApiEnvelope<AdminPricingRule>>(
+      apiBaseUrl(),
+      `/api/admin/users/${userId}/products/${productId}/pricing-rule`,
+      { method: "PUT", body: input },
+    ),
+  );
+}
+
+export async function setPricingRuleActive(
+  ruleId: string,
+  isActive: boolean,
+  reason: string,
+): Promise<AdminPricingRule> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminPricingRule | ApiEnvelope<AdminPricingRule>>(
+      apiBaseUrl(),
+      `/api/admin/pricing-rules/${ruleId}/${isActive ? "enable" : "disable"}`,
+      { method: "PATCH", body: { reason } },
+    ),
+  );
+}
+
+export async function getPricingRuleAudit(
+  ruleId: string,
+): Promise<AdminPricingRuleAudit[]> {
+  return unwrapBody(
+    await apiJsonAuthorized<
+      AdminPricingRuleAudit[] | ApiEnvelope<AdminPricingRuleAudit[]>
+    >(apiBaseUrl(), `/api/admin/pricing-rules/${ruleId}/audit`, {
+      method: "GET",
+    }),
   );
 }

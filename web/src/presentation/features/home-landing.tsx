@@ -149,6 +149,8 @@ const speedPhases = [
   },
 ] as const;
 
+const speedPhaseProgress = ["0%", "33.333%", "66.666%", "100%"] as const;
+
 const CAROUSEL_GAP_PX = 16;
 
 function ChevronLeftIcon({ className }: { className?: string }) {
@@ -436,8 +438,46 @@ function FeaturedProductCarousel({ pool }: { pool: Product[] }) {
   );
 }
 
+function SpeedNetworkAnimation() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute left-0 right-0 top-4 h-14"
+    >
+      <div className="absolute left-[12.5%] right-[12.5%] top-0 h-full">
+        <div className="absolute inset-x-0 top-5 h-2 overflow-hidden rounded-full bg-default/70 shadow-inner ring-1 ring-white/70">
+          <div className="speed-network-road-shine absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-white/80 to-transparent opacity-80" />
+          <div className="speed-network-progress absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary/85 via-primary to-catalog-blue/80 shadow-[0_0_18px_rgba(31,122,99,0.35)]" />
+        </div>
+
+        {speedPhaseProgress.map((position, i) => (
+          <span
+            key={position}
+            className="speed-network-check absolute top-4 h-4 w-4 -translate-x-1/2 rounded-full border-2 border-card bg-primary shadow-[0_0_0_8px_rgba(31,122,99,0.08)]"
+            style={
+              {
+                "--checkpoint-delay": `${0.15 + i * 1.2}s`,
+                left: position,
+              } as CSSProperties
+            }
+          />
+        ))}
+
+        <div className="speed-network-truck absolute left-0 top-0 z-[1] -translate-x-1/2">
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/20 bg-card text-primary shadow-[0_16px_34px_-14px_rgba(15,23,42,0.48)] ring-1 ring-white/90">
+            <span className="absolute -right-8 top-1/2 h-px w-8 -translate-y-1/2 bg-gradient-to-r from-primary/45 to-transparent" />
+            <TruckIcon className="h-7 w-7" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function HomeLanding() {
   const { data: products = [], isPending, isSuccess } = useProductsQuery();
+  const speedNetworkRef = useRef<HTMLElement>(null);
+  const [speedNetworkActive, setSpeedNetworkActive] = useState(false);
 
   const featuredPool = useMemo(() => {
     if (!products.length) return [];
@@ -447,6 +487,32 @@ export function HomeLanding() {
     }
     return out.slice(0, Math.max(products.length, 8));
   }, [products]);
+
+  useEffect(() => {
+    if (speedNetworkActive) return;
+    const node = speedNetworkRef.current;
+    if (!node) return;
+
+    if (typeof window.IntersectionObserver === "undefined") {
+      const fallbackTimer = window.setTimeout(() => setSpeedNetworkActive(true), 0);
+      return () => window.clearTimeout(fallbackTimer);
+    }
+
+    const observer = new window.IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setSpeedNetworkActive(true);
+        observer.disconnect();
+      },
+      {
+        rootMargin: "0px 0px -18% 0px",
+        threshold: 0.35,
+      },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [speedNetworkActive]);
 
   return (
     <div className="flex flex-col gap-14 pb-10 lg:gap-20 lg:pb-14">
@@ -510,27 +576,40 @@ export function HomeLanding() {
         ) : null}
       </section>
 
-      <section aria-label="Fulfillment checkpoints" className="flex flex-col gap-8">
+      <section
+        ref={speedNetworkRef}
+        aria-label="Fulfillment checkpoints"
+        className="flex flex-col gap-8"
+      >
         <div>
           <h2 className="text-2xl font-bold text-heading">Speed Network</h2>
           <p className="mt-1 text-sm text-secondary">
             Four checkpoints so every box moves faster from click to countertop.
           </p>
         </div>
-        <div className="relative">
-          <div
-            aria-hidden
-            className="absolute left-6 right-6 top-[18px] hidden h-px bg-default lg:block"
-            style={{
-              maskImage:
-                "linear-gradient(90deg, transparent 12px, black 36px, black calc(100% - 36px), transparent calc(100% - 12px))",
-            }}
-          />
-          <div className="relative grid gap-8 sm:gap-10 lg:grid-cols-4 lg:gap-4">
+        <div
+          className={cn(
+            "relative overflow-hidden rounded-[1.25rem] border border-default/80 bg-card p-4 shadow-[0_18px_50px_-28px_rgba(15,23,42,0.35)] sm:p-5 lg:p-6",
+            speedNetworkActive && "speed-network-is-active",
+          )}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(31,122,99,0.08),transparent_34%,rgba(5,44,101,0.05))]" />
+          <SpeedNetworkAnimation />
+          <div className="relative grid gap-5 pt-20 sm:gap-6 lg:grid-cols-4 lg:gap-4">
             {speedPhases.map(({ label, subtitle }, i) => (
-              <div key={label} className="flex flex-col gap-3 text-left lg:items-start lg:gap-4">
+              <div
+                key={label}
+                className="speed-network-phase group relative flex min-h-[8.75rem] gap-4 rounded-xl border border-default/70 bg-card/90 p-4 text-left shadow-sm transition-[border-color,box-shadow] duration-300 hover:border-primary/30 hover:shadow-md lg:flex-col lg:gap-4"
+                style={
+                  {
+                    "--phase-delay": `${i * 0.12}s`,
+                    "--badge-delay": `${0.55 + i * 1.2}s`,
+                  } as CSSProperties
+                }
+              >
+                <div className="absolute inset-x-4 top-0 hidden h-px bg-gradient-to-r from-transparent via-primary/35 to-transparent lg:block" />
                 <div className="flex items-start gap-3 lg:flex-col lg:items-start">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-light text-xs font-bold text-primary ring-4 ring-card">
+                  <div className="speed-network-phase-badge flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-xs font-bold text-primary ring-4 ring-card transition-colors group-hover:bg-primary group-hover:text-card">
                     {i + 1}
                   </div>
                   <div className="min-h-px flex-1 border-t border-dashed border-default lg:hidden" />

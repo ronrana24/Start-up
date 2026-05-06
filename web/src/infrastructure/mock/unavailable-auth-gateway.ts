@@ -3,7 +3,7 @@ import { DomainError } from "@domain/errors";
 
 export function createUnavailableAuthGateway(): AuthGateway {
   const msg =
-    "Google sign-in requires NEXT_PUBLIC_API_MODE=http and NEXT_PUBLIC_API_BASE_URL pointing at your API.";
+    "Google sign-in requires NEXT_PUBLIC_API_BASE_URL pointing at your API.";
   return {
     async loginWithGoogle() {
       throw new DomainError("INVALID_INPUT", msg);
@@ -15,7 +15,7 @@ export function createUnavailableAuthGateway(): AuthGateway {
       throw new DomainError("INVALID_INPUT", msg);
     },
     async logout() {
-      /* No remote cookie exists in mock mode. */
+      /* No remote cookie exists. */
     },
   };
 }

@@ -4,6 +4,7 @@ import { GoogleLogin } from "@react-oauth/google";
 
 export type GoogleSignInSectionProps = {
   googleBusy: boolean;
+  setGoogleBusy: (busy: boolean) => void;
   onCredentialSuccess: (idToken: string) => void;
   onCredentialMissing: () => void;
   onGoogleSdkError: () => void;
@@ -35,6 +36,7 @@ function GoogleMarkIcon({ className }: { className?: string }) {
 
 export function GoogleSignInSection({
   googleBusy,
+  setGoogleBusy,
   onCredentialSuccess,
   onCredentialMissing,
   onGoogleSdkError,
@@ -64,7 +66,7 @@ export function GoogleSignInSection({
       <div className="flex w-full justify-center [&>div]:w-full [&>div]:flex [&>div]:justify-center">
         <GoogleLogin
           text="continue_with"
-          shape="circle"
+          shape="pill"
           size="large"
           theme="outline"
           width={320}
@@ -78,7 +80,13 @@ export function GoogleSignInSection({
             }
             onCredentialSuccess(idToken);
           }}
-          onError={onGoogleSdkError}
+          click_listener={() => {
+            setGoogleBusy(true);
+          }}
+          onError={() => {
+            setGoogleBusy(false);
+            onGoogleSdkError();
+          }}
         />
       </div>
     </div>

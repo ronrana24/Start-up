@@ -151,6 +151,7 @@ export function CartScreen() {
     () => lines.reduce((n, l) => n + l.quantity, 0),
     [lines],
   );
+  const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
   const estTaxCents = Math.round(subtotalCents * EST_TAX_RATE);
   const totalWithTaxCents = subtotalCents + estTaxCents;
@@ -292,9 +293,26 @@ export function CartScreen() {
                       <h3 className="line-clamp-2 text-xs font-bold leading-tight text-heading">{line.title}</h3>
                     </div>
                     <div className="mt-1 flex items-center justify-between">
-                      <span className="text-[10px] text-muted">Per unit</span>
-                      <span className="text-sm font-bold text-heading">{formatMoney(lineTotal)}</span>
+                      <span className="text-[10px] text-muted">Line total</span>
+                      <span className="text-sm font-bold text-heading">
+                        {formatMoney(lineTotal, line.currency)}
+                      </span>
                     </div>
+                    {line.pricingSource === "SPECIAL" ? (
+                      <div className="mt-1 flex items-center justify-between">
+                        <span className="rounded bg-primary-light px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                          {line.specialPricingLabel ?? "Special price for you"}
+                        </span>
+                        {line.originalUnitPriceCents ? (
+                          <span className="text-[10px] text-muted line-through">
+                            {formatMoney(
+                              line.originalUnitPriceCents,
+                              line.currency,
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -368,7 +386,8 @@ export function CartScreen() {
             <div className="mb-1.5 flex items-end justify-between">
               <span className="text-xs font-semibold text-heading">Minimum for free delivery</span>
               <span className="text-xs font-bold text-heading">
-                {formatMoney(subtotalCents)} / {formatMoney(FREE_DELIVERY_THRESHOLD_CENTS)}
+                {formatMoney(subtotalCents, cartCurrency)} /{" "}
+                {formatMoney(FREE_DELIVERY_THRESHOLD_CENTS, cartCurrency)}
               </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-input-bg">
@@ -380,7 +399,7 @@ export function CartScreen() {
             <p className="mt-1.5 text-right text-[10px] text-muted">
               {remainingForFree === 0
                 ? "You qualify for free delivery on this threshold."
-                : `Add ${formatMoney(remainingForFree)} more to qualify`}
+                : `Add ${formatMoney(remainingForFree, cartCurrency)} more to qualify`}
             </p>
           </div>
         </section>
@@ -396,15 +415,21 @@ export function CartScreen() {
           <span className="text-xs font-medium text-muted">
             Subtotal ({itemCount} {itemCount === 1 ? "item" : "items"})
           </span>
-          <span className="text-sm font-semibold text-heading">{formatMoney(subtotalCents)}</span>
+          <span className="text-sm font-semibold text-heading">
+            {formatMoney(subtotalCents, cartCurrency)}
+          </span>
         </div>
         <div className="mb-3 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">Est. taxes &amp; fees</span>
-          <span className="text-sm font-semibold text-heading">{formatMoney(estTaxCents)}</span>
+          <span className="text-sm font-semibold text-heading">
+            {formatMoney(estTaxCents, cartCurrency)}
+          </span>
         </div>
         <div className="mb-4 flex items-center justify-between border-t border-default/40 pt-2">
           <span className="text-sm font-bold text-heading">Total</span>
-          <span className="text-xl font-bold text-primary">{formatMoney(totalWithTaxCents)}</span>
+          <span className="text-xl font-bold text-primary">
+            {formatMoney(totalWithTaxCents, cartCurrency)}
+          </span>
         </div>
         <LinkButton
           href="/checkout"

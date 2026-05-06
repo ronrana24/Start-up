@@ -61,11 +61,11 @@ export function DesktopNavBar() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   return (
-    <div className="px-4 pb-5 pt-4 sm:px-6 lg:pb-6">
+    <div className="pointer-events-none px-4 pb-4 pt-3 sm:px-6 lg:pb-5">
       <div
         className={cn(
-          "mx-auto grid w-full max-w-4xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 px-5 py-3 sm:gap-6 sm:px-8",
-          "rounded-[2rem] border border-card/70 bg-card/60 shadow-[0_8px_32px_-8px_rgba(31,122,99,0.12)] backdrop-blur-xl",
+          "desktop-glass-nav pointer-events-auto mx-auto grid w-full max-w-5xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 overflow-hidden px-5 py-3 sm:gap-6 sm:px-8",
+          "rounded-[2rem] border-white/55 shadow-[0_18px_45px_-22px_rgba(15,81,50,0.42)] ring-1 ring-white/35",
         )}
       >
         <Link

@@ -53,7 +53,6 @@ export async function apiJsonAuthorized<T>(
   path: string,
   options: {
     method: ApiJsonMethod;
-    accessToken?: string | null;
     body?: unknown;
   },
 ): Promise<T> {
@@ -61,9 +60,9 @@ export async function apiJsonAuthorized<T>(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (options.accessToken) {
-    headers.Authorization = `Bearer ${options.accessToken}`;
-  }
+  // no authorization header needed for authorized requests
+  // because the request is authenticated via cookies
+  // access_token is stored in the cookie 
   const res = await fetch(url, {
     method: options.method,
     headers,

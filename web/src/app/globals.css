@@ -65,6 +65,82 @@ body {
   scrollbar-width: none;
 }
 
+@keyframes desktopNavMirrorSweep {
+  0%,
+  42% {
+    opacity: 0;
+    transform: translateX(-150%) skewX(-18deg);
+  }
+  58% {
+    opacity: 0.62;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+
+.desktop-glass-nav,
+.mobile-glass-nav {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.28)),
+    linear-gradient(90deg, rgba(230, 244, 241, 0.56), rgba(255, 255, 255, 0.1));
+  -webkit-backdrop-filter: blur(15px);
+  backdrop-filter: blur(15px);
+}
+
+.desktop-glass-nav::before,
+.desktop-glass-nav::after,
+.mobile-glass-nav::before,
+.mobile-glass-nav::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+}
+
+.desktop-glass-nav::before,
+.mobile-glass-nav::before {
+  z-index: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 44%),
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.62), transparent 34%),
+    radial-gradient(circle at 82% 100%, rgba(31, 122, 99, 0.14), transparent 32%);
+}
+
+.desktop-glass-nav::after,
+.mobile-glass-nav::after {
+  bottom: -70%;
+  left: -40%;
+  top: -70%;
+  z-index: 2;
+  width: 28%;
+  animation: desktopNavMirrorSweep 7.5s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.82),
+    transparent
+  );
+  filter: blur(1px);
+  mix-blend-mode: screen;
+}
+
+.desktop-glass-nav > *,
+.mobile-glass-nav > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-glass-nav::after,
+  .mobile-glass-nav::after {
+    animation: none;
+  }
+}
+
 /* Order confirmation: animated success check */
 @keyframes orderConfirmCheckPop {
   0% {
@@ -110,4 +186,179 @@ body {
 
 .onboarding-welcome-animate {
   animation: onboardingWelcomeIn 0.55s ease-out both;
+}
+
+@keyframes speedNetworkTruckDrive {
+  0%,
+  8% {
+    left: 0%;
+    transform: translateX(-50%) translateY(0) scale(0.96);
+  }
+  26%,
+  32% {
+    left: 33.333%;
+    transform: translateX(-50%) translateY(-4px) scale(1);
+  }
+  50%,
+  56% {
+    left: 66.666%;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  78%,
+  100% {
+    left: 100%;
+    transform: translateX(-50%) translateY(-3px) scale(1);
+  }
+}
+
+@keyframes speedNetworkProgressFill {
+  0%,
+  8% {
+    width: 0%;
+  }
+  32% {
+    width: 33.333%;
+  }
+  56% {
+    width: 66.666%;
+  }
+  78%,
+  100% {
+    width: 100%;
+  }
+}
+
+@keyframes speedNetworkRoadShine {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes speedNetworkCheckpointPulse {
+  0% {
+    transform: translateX(-50%) scale(0.7);
+    box-shadow: 0 0 0 0 rgba(31, 122, 99, 0);
+  }
+  45% {
+    transform: translateX(-50%) scale(1.18);
+    box-shadow: 0 0 0 12px rgba(31, 122, 99, 0.14);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+    box-shadow: 0 0 0 8px rgba(31, 122, 99, 0.08);
+  }
+}
+
+@keyframes speedNetworkPhaseLift {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes speedNetworkBadgePulse {
+  0%,
+  55%,
+  100% {
+    transform: scale(1);
+  }
+  70% {
+    transform: scale(1.12);
+  }
+}
+
+.speed-network-truck {
+  left: 0%;
+  transform: translateX(-50%) translateY(0) scale(0.96);
+}
+
+.speed-network-progress {
+  width: 0%;
+}
+
+.speed-network-road-shine {
+  opacity: 0;
+}
+
+.speed-network-check {
+  opacity: 0.56;
+  transform: translateX(-50%) scale(0.78);
+}
+
+.speed-network-phase {
+  opacity: 0;
+  translate: 0 12px;
+}
+
+.speed-network-phase-badge {
+  transform: scale(1);
+}
+
+.speed-network-is-active .speed-network-truck {
+  animation: speedNetworkTruckDrive 4.8s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
+}
+
+.speed-network-is-active .speed-network-progress {
+  animation: speedNetworkProgressFill 4.8s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
+}
+
+.speed-network-is-active .speed-network-road-shine {
+  opacity: 0.85;
+  animation: speedNetworkRoadShine 2.4s ease-in-out infinite;
+}
+
+.speed-network-is-active .speed-network-check {
+  animation: speedNetworkCheckpointPulse 0.7s ease-out both;
+  animation-delay: var(--checkpoint-delay, 0s);
+}
+
+.speed-network-is-active .speed-network-phase {
+  animation: speedNetworkPhaseLift 0.55s ease-out both;
+  animation-delay: var(--phase-delay, 0s);
+}
+
+.speed-network-is-active .speed-network-phase-badge {
+  animation: speedNetworkBadgePulse 0.8s ease-out both;
+  animation-delay: var(--badge-delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speed-network-truck,
+  .speed-network-progress,
+  .speed-network-road-shine,
+  .speed-network-check,
+  .speed-network-phase,
+  .speed-network-phase-badge {
+    animation: none;
+  }
+
+  .speed-network-truck {
+    left: 100%;
+    transform: translateX(-50%) translateY(-3px) scale(1);
+  }
+
+  .speed-network-progress {
+    width: 100%;
+  }
+
+  .speed-network-road-shine {
+    opacity: 0;
+  }
+
+  .speed-network-check {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+
+  .speed-network-phase {
+    opacity: 1;
+    translate: 0 0;
+  }
 }

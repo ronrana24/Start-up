@@ -245,6 +245,7 @@ function profileFallback(phone: string | null, userId: string | null): UserProfi
     businessName: "Wholesale Business",
     businessType: "OTHER",
     gstNumber: null,
+    isOnboardingCompleted: false,
     role: "BUYER",
     addresses: [],
   };

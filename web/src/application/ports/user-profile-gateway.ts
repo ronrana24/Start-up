@@ -2,10 +2,11 @@ export const BUSINESS_TYPES = ["RESTAURANT", "EVENT_PLANNER", "OTHER"] as const;
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
 
 export type UpdateUserProfileInput = {
-  businessName: string;
-  businessType: BusinessType;
+  businessName?: string;
+  businessType?: BusinessType;
   /** Omit or leave empty to skip updating GST */
   gstNumber?: string | null;
+  isOnboardingCompleted?: boolean;
 };
 
 export type CreateUserAddressInput = {
@@ -35,6 +36,7 @@ export type UserProfile = {
   businessName: string;
   businessType: BusinessType;
   gstNumber?: string | null;
+  isOnboardingCompleted: boolean;
   role: "BUYER" | "ADMIN" | "RIDER";
   addresses: UserAddress[];
 };

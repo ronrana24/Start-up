@@ -18,6 +18,7 @@ import {
   GoogleProfile,
   GoogleVerifierService,
 } from './google/google-verifier.service';
+import { StringValue } from 'ms';
 
 const REGISTRATION_TOKEN_PURPOSE = 'google_registration';
 
@@ -45,6 +46,7 @@ export type AuthUser = {
   businessName: string;
   businessType: string;
   gstNumber: string | null;
+  isOnboardingCompleted: boolean;
   role: UserRole;
   createdAt: Date;
   updatedAt: Date;
@@ -130,7 +132,10 @@ export class AuthService {
       phone: user.phone,
       role: user.role,
     };
-    return this.jwt.signAsync(payload);
+    return this.jwt.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('jwt.secret'),
+      expiresIn: this.config.getOrThrow<StringValue>('jwt.expiresIn'),
+    });
   }
 
   private toAuthUser(user: User): AuthUser {
@@ -142,6 +147,7 @@ export class AuthService {
       businessName: user.businessName,
       businessType: user.businessType,
       gstNumber: user.gstNumber,
+      isOnboardingCompleted: user.isOnboardingCompleted,
       role: user.role,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -210,14 +216,12 @@ export class AuthService {
       picture: profile.picture,
     };
     const secret = this.config.getOrThrow<string>('jwt.secret');
-    const ttl = this.config.get<number>('jwt.expiresIn') ?? 600;
+    const ttl = this.config.getOrThrow<StringValue>('jwt.expiresIn');
     return this.jwt.sign(payload, { secret, expiresIn: ttl });
   }
 
   private verifyRegistrationToken(token: string): RegistrationTokenPayload {
-    const secret = this.config.getOrThrow<string>(
-      'auth.registrationTokenSecret',
-    );
+    const secret = this.config.getOrThrow<string>('jwt.secret');
     let decoded: RegistrationTokenPayload;
     try {
       decoded = this.jwt.verify<RegistrationTokenPayload>(token, { secret });

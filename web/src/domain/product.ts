@@ -7,6 +7,16 @@ export type ProductBadge = {
   tone?: ProductBadgeTone;
 };
 
+export type PricingSource = "BASE" | "BULK" | "SPECIAL";
+
+export type ProductSpecialPricing = {
+  label: string;
+  discountType: "PERCENT_OFF" | "AMOUNT_OFF";
+  discountValue: number;
+  originalPriceCents: number;
+  effectivePriceCents: number;
+};
+
 export type BulkTier = {
   minCases: number;
   maxCases: number | null;
@@ -23,8 +33,11 @@ export type Product = {
   id: ProductId;
   title: string;
   description: string;
+  basePriceCents?: number;
   priceCents: number;
-  currency: "USD";
+  currency: "USD" | "INR";
+  pricingSource?: PricingSource;
+  specialPricing?: ProductSpecialPricing | null;
   imageUrl: string;
   /** Extra gallery images; first hero can match imageUrl */
   galleryImageUrls?: string[];

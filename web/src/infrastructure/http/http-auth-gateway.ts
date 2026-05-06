@@ -6,6 +6,7 @@ type ApiUser = {
   id: string;
   phone: string | null;
   role: AuthSession["role"];
+  isOnboardingCompleted?: boolean;
 };
 type ApiEnvelope<T> = { data: T };
 
@@ -22,6 +23,7 @@ function sessionFromUser(accessToken: string | null, user: ApiUser): AuthSession
     userId: user.id,
     phone: user.phone,
     role: user.role,
+    isOnboardingCompleted: user.isOnboardingCompleted ?? false,
   };
 }
 

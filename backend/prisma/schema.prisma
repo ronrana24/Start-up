@@ -43,21 +43,38 @@ enum BusinessType {
   OTHER
 }
 
+enum PricingDiscountType {
+  PERCENT_OFF
+  AMOUNT_OFF
+}
+
+enum PricingRuleAuditAction {
+  CREATED
+  UPDATED
+  DISABLED
+  ENABLED
+}
+
 model User {
-  id            String        @id @default(cuid())
-  phone         String        @unique
-  passwordHash  String?
-  email         String?       @unique
-  name          String?
-  googleId      String?       @unique
-  businessName  String
-  businessType  BusinessType  @default(OTHER)
-  gstNumber     String?
-  role          UserRole      @default(BUYER)
-  addresses     Address[]
-  orders        Order[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                    String                    @id @default(cuid())
+  phone                 String                    @unique
+  passwordHash          String?
+  email                 String?                   @unique
+  name                  String?
+  googleId              String?                   @unique
+  businessName          String
+  businessType          BusinessType              @default(OTHER)
+  gstNumber             String?
+  isOnboardingCompleted Boolean                   @default(false)
+  role                  UserRole                  @default(BUYER)
+  addresses             Address[]
+  orders                Order[]
+  pricingRules          UserProductPricingRule[]  @relation("BuyerPricingRules")
+  pricingRulesCreated   UserProductPricingRule[]  @relation("PricingRulesCreatedBy")
+  pricingRulesUpdated   UserProductPricingRule[]  @relation("PricingRulesUpdatedBy")
+  pricingAuditsChanged  UserProductPricingAudit[] @relation("PricingAuditsChangedBy")
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
 }
 
 model Address {
@@ -80,9 +97,11 @@ model Product {
   category         String
   unit             ProductUnit
   basePrice        Decimal      @db.Decimal(12, 2)
+  imageUrls        Json         @default("[]")
   bulkPricingTiers Json
   inventory        Inventory?
   orderItems       OrderItem[]
+  pricingRules     UserProductPricingRule[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -123,16 +142,63 @@ model Order {
 }
 
 model OrderItem {
-  id           String  @id @default(cuid())
-  orderId      String
-  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId    String
-  product      Product @relation(fields: [productId], references: [id])
-  quantity     Int
-  priceApplied Decimal @db.Decimal(12, 2)
+  id              String  @id @default(cuid())
+  orderId         String
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product @relation(fields: [productId], references: [id])
+  quantity        Int
+  priceApplied    Decimal @db.Decimal(12, 2)
+  pricingSnapshot Json?
 
   @@index([orderId])
   @@index([productId])
+}
+
+model UserProductPricingRule {
+  id               String                    @id @default(cuid())
+  userId           String
+  user             User                      @relation("BuyerPricingRules", fields: [userId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  discountType     PricingDiscountType
+  discountValue    Decimal                   @db.Decimal(12, 2)
+  isActive         Boolean                   @default(true)
+  adminNote        String?
+  createdByAdminId String?
+  createdByAdmin   User?                     @relation("PricingRulesCreatedBy", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  updatedByAdminId String?
+  updatedByAdmin   User?                     @relation("PricingRulesUpdatedBy", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+  audits           UserProductPricingAudit[]
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([userId, productId])
+  @@index([productId])
+  @@index([isActive])
+  @@index([createdByAdminId])
+  @@index([updatedByAdminId])
+}
+
+model UserProductPricingAudit {
+  id               String                 @id @default(cuid())
+  ruleId           String
+  rule             UserProductPricingRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  userId           String
+  productId        String
+  changedByAdminId String?
+  changedByAdmin   User?                  @relation("PricingAuditsChangedBy", fields: [changedByAdminId], references: [id], onDelete: SetNull)
+  action           PricingRuleAuditAction
+  oldValue         Json?
+  newValue         Json?
+  reason           String
+  createdAt        DateTime               @default(now())
+
+  @@index([ruleId])
+  @@index([userId])
+  @@index([productId])
+  @@index([changedByAdminId])
+  @@index([createdAt])
 }
 
 model Rider {

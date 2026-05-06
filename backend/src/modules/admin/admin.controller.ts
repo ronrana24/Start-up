@@ -4,12 +4,18 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import type { User } from '@prisma/client';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { PricingRuleReasonDto } from '../pricing-rules/dto/pricing-rule-reason.dto';
+import { UpsertPricingRuleDto } from '../pricing-rules/dto/upsert-pricing-rule.dto';
+import { PricingRulesService } from '../pricing-rules/pricing-rules.service';
 import { AssignRiderDto } from './dto/assign-rider.dto';
 import { QueryAdminAnalyticsDto } from './dto/query-admin-analytics.dto';
 import { PatchOrderStatusDto } from './dto/patch-order-status.dto';
@@ -25,6 +31,7 @@ export class AdminController {
   constructor(
     private readonly orders: OrdersService,
     private readonly admin: AdminService,
+    private readonly pricingRules: PricingRulesService,
   ) {}
 
   @Get('analytics')
@@ -52,12 +59,55 @@ export class AdminController {
     });
   }
 
+  @Get('users/:userId/pricing-rules')
+  listUserPricingRules(@Param('userId') userId: string) {
+    return this.pricingRules.listForUser(userId);
+  }
+
+  @Put('users/:userId/products/:productId/pricing-rule')
+  upsertUserProductPricingRule(
+    @Param('userId') userId: string,
+    @Param('productId') productId: string,
+    @Body() dto: UpsertPricingRuleDto,
+    @CurrentUser() admin: User,
+  ) {
+    return this.pricingRules.upsertForUserProduct(
+      userId,
+      productId,
+      dto,
+      admin,
+    );
+  }
+
   @Get('users/:id/analytics')
   userAnalytics(
     @Param('id') id: string,
     @Query() query: QueryAdminAnalyticsDto,
   ) {
     return this.admin.userAnalytics(id, query.range);
+  }
+
+  @Patch('pricing-rules/:id/disable')
+  disablePricingRule(
+    @Param('id') id: string,
+    @Body() dto: PricingRuleReasonDto,
+    @CurrentUser() admin: User,
+  ) {
+    return this.pricingRules.setRuleActive(id, false, dto.reason, admin);
+  }
+
+  @Patch('pricing-rules/:id/enable')
+  enablePricingRule(
+    @Param('id') id: string,
+    @Body() dto: PricingRuleReasonDto,
+    @CurrentUser() admin: User,
+  ) {
+    return this.pricingRules.setRuleActive(id, true, dto.reason, admin);
+  }
+
+  @Get('pricing-rules/:id/audit')
+  pricingRuleAudit(@Param('id') id: string) {
+    return this.pricingRules.auditForRule(id);
   }
 
   @Patch('orders/:id/status')

@@ -7,6 +7,7 @@ type ApiUser = {
   id: string;
   phone: string | null;
   role: AuthSession["role"];
+  isOnboardingCompleted?: boolean;
 };
 type VerifyOtpBody = {
   accessToken: string;
@@ -27,6 +28,7 @@ function sessionFromVerifyBody(body: VerifyOtpBody): AuthSession {
     userId: body.user.id,
     phone: body.user.phone,
     role: body.user.role,
+    isOnboardingCompleted: body.user.isOnboardingCompleted ?? false,
   };
 }
 

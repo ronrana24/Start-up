@@ -5,6 +5,10 @@ export type CartLine = {
   quantity: number;
   title: string;
   unitPriceCents: number;
+  currency?: "USD" | "INR";
+  pricingSource?: "BASE" | "BULK" | "SPECIAL";
+  originalUnitPriceCents?: number | null;
+  specialPricingLabel?: string | null;
   imageUrl: string;
 };
 

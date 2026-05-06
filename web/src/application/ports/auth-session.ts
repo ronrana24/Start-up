@@ -3,4 +3,5 @@ export type AuthSession = {
   userId: string;
   phone: string | null;
   role: "BUYER" | "ADMIN" | "RIDER";
+  isOnboardingCompleted: boolean;
 };

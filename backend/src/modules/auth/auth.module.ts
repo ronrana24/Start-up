@@ -10,6 +10,7 @@ import { ProductionSmsService } from './sms/production-sms.service';
 import { SMS_SERVICE } from './sms/sms.service';
 import { SmsRouterService } from './sms/sms-router.service';
 import { GoogleVerifierService } from './google/google-verifier.service';
+import { StringValue } from 'ms';
 
 @Module({
   imports: [
@@ -20,8 +21,7 @@ import { GoogleVerifierService } from './google/google-verifier.service';
       useFactory: (config: ConfigService): JwtModuleOptions => ({
         secret: config.getOrThrow<string>('jwt.secret'),
         signOptions: {
-          expiresIn: (config.get<string>('jwt.expiresIn') ??
-            '7d') as NonNullable<JwtModuleOptions['signOptions']>['expiresIn'],
+          expiresIn: config.getOrThrow<StringValue>('jwt.expiresIn'),
         },
       }),
     }),

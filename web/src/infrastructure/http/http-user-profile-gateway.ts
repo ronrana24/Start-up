@@ -17,13 +17,19 @@ function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
 }
 
 function patchProfileBody(input: UpdateUserProfileInput): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    businessName: input.businessName,
-    businessType: input.businessType,
-  };
+  const body: Record<string, unknown> = {};
+  if (input.businessName !== undefined) {
+    body.businessName = input.businessName;
+  }
+  if (input.businessType !== undefined) {
+    body.businessType = input.businessType;
+  }
   const gst = input.gstNumber?.trim();
   if (gst) {
     body.gstNumber = gst.toUpperCase();
+  }
+  if (input.isOnboardingCompleted !== undefined) {
+    body.isOnboardingCompleted = input.isOnboardingCompleted;
   }
   return body;
 }
@@ -41,45 +47,43 @@ function addressBody(input: CreateUserAddressInput): Record<string, unknown> {
 
 export function createHttpUserProfileGateway(baseUrl: string): UserProfileGateway {
   return {
-    async getProfile(accessToken) {
+    async getProfile() {
       return unwrapBody(
         await apiJsonAuthorized<UserProfile | ApiEnvelope<UserProfile>>(
           baseUrl,
           "/api/users/me",
           {
             method: "GET",
-            accessToken,
           },
         ),
       );
     },
-    async listAddresses(accessToken) {
+    async listAddresses() {
       return unwrapBody(
         await apiJsonAuthorized<UserAddress[] | ApiEnvelope<UserAddress[]>>(
           baseUrl,
           "/api/users/me/addresses",
           {
             method: "GET",
-            accessToken,
           },
         ),
       );
     },
     async updateProfile(accessToken, input) {
+      void accessToken;
       await apiJsonAuthorized<unknown>(baseUrl, "/api/users/me", {
         method: "PATCH",
-        accessToken,
         body: patchProfileBody(input),
       });
     },
     async createAddress(accessToken, input) {
+      void accessToken;
       return unwrapBody(
         await apiJsonAuthorized<UserAddress | ApiEnvelope<UserAddress>>(
           baseUrl,
           "/api/users/me/addresses",
           {
             method: "POST",
-            accessToken,
             body: addressBody(input),
           },
         ),

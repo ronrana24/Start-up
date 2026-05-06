@@ -26,6 +26,10 @@ function upsert(lines: CartLine[], product: Product, quantity: number): CartLine
     quantity,
     title: product.title,
     unitPriceCents: product.priceCents,
+    currency: product.currency,
+    pricingSource: product.pricingSource,
+    originalUnitPriceCents: product.specialPricing?.originalPriceCents ?? null,
+    specialPricingLabel: product.specialPricing?.label ?? null,
     imageUrl: product.imageUrl,
   };
   if (idx === -1) {
@@ -57,6 +61,11 @@ export const useCartStore = create<CartState>()(
           quantity,
           title: product.title,
           unitPriceCents,
+          currency: product.currency,
+          pricingSource: product.pricingSource,
+          originalUnitPriceCents:
+            product.specialPricing?.originalPriceCents ?? null,
+          specialPricingLabel: product.specialPricing?.label ?? null,
           imageUrl: product.imageUrl,
         };
         const idx = get().lines.findIndex((l) => l.productId === product.id);

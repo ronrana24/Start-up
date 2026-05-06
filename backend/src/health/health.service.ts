@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { HEALTH_MODULE_VALUES, HealthModuleId } from './health.constants';
+import { isSecureSecretConfigured } from '../config/configuration';
 
 export type ModuleHealthStatus = 'up' | 'down';
 
@@ -41,7 +42,7 @@ export class HealthService {
   async checkAll(): Promise<AggregateHealthResult> {
     const db = await this.checkDatabase();
     const jwtSecret = this.config.get<string>('jwt.secret');
-    const jwtOk = typeof jwtSecret === 'string' && jwtSecret.length > 0;
+    const jwtOk = isSecureSecretConfigured(jwtSecret);
     const authOk = db.ok && jwtOk;
 
     const modules = {} as Record<
@@ -80,7 +81,7 @@ export class HealthService {
   private async checkAuth(): Promise<ModuleHealthResult> {
     const db = await this.checkDatabase();
     const jwtSecret = this.config.get<string>('jwt.secret');
-    const jwtOk = typeof jwtSecret === 'string' && jwtSecret.length > 0;
+    const jwtOk = isSecureSecretConfigured(jwtSecret);
     const ok = db.ok && jwtOk;
     return {
       module: HealthModuleId.auth,
