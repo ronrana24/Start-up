@@ -17,5 +17,7 @@ export function useOrderTrackingQuery(
         : ["orders", "tracking", "none"],
     enabled: Boolean(orderId && userId),
     queryFn: () => getOrderTracking(deps, orderId!, userId!),
+    refetchInterval: (query) =>
+      query.state.data?.status === "delivered" ? false : 15000,
   });
 }

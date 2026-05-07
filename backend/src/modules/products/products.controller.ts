@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -19,6 +21,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 
 type UploadedProductImageFile = {
@@ -38,8 +41,12 @@ export class ProductsController {
   }
 
   @Get(':id')
-  getOne(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.products.getById(id, user);
+  getOne(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Query() query: QueryProductsDto,
+  ) {
+    return this.products.getById(id, user, query.publicOnly);
   }
 
   @Post()
@@ -47,6 +54,20 @@ export class ProductsController {
   @Roles(UserRole.ADMIN)
   create(@Body() dto: CreateProductDto) {
     return this.products.create(dto);
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
+    return this.products.update(id, dto);
+  }
+
+  @Delete(':id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  remove(@Param('id') id: string) {
+    return this.products.hardDelete(id);
   }
 
   @Post('uploads')

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, User } from '@prisma/client';
+import { Prisma, User, UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { mkdir, writeFile } from 'fs/promises';
 import { extname, join } from 'path';
@@ -12,6 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingRulesService } from '../pricing-rules/pricing-rules.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 type UploadedProductImageFile = {
   originalname: string;
@@ -27,6 +28,10 @@ const allowedImageMimeTypes = new Map<string, string>([
   ['image/webp', '.webp'],
   ['image/gif', '.gif'],
 ]);
+
+function canSeePrivateProducts(user?: User): boolean {
+  return user?.role === UserRole.ADMIN;
+}
 
 @Injectable()
 export class ProductsService {
@@ -94,6 +99,9 @@ export class ProductsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const where: Prisma.ProductWhereInput = {};
+    if (query.publicOnly || !canSeePrivateProducts(user)) {
+      where.isPublic = true;
+    }
     if (query.category) {
       where.category = query.category;
     }
@@ -118,12 +126,15 @@ export class ProductsService {
     };
   }
 
-  async getById(id: string, user?: User) {
+  async getById(id: string, user?: User, publicOnly = false) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: { inventory: true },
     });
-    if (!product) {
+    if (
+      !product ||
+      ((publicOnly || !canSeePrivateProducts(user)) && !product.isPublic)
+    ) {
       throw new NotFoundException('Product not found');
     }
     const [decorated] = await this.pricingRules.decorateProductsForUser(user, [
@@ -139,6 +150,9 @@ export class ProductsService {
           name: dto.name,
           category: dto.category,
           unit: dto.unit,
+          piecesPerPack:
+            dto.unit === 'PACK' ? (dto.piecesPerPack ?? null) : null,
+          isPublic: dto.isPublic ?? false,
           basePrice: new Prisma.Decimal(dto.basePrice),
           imageUrls: this.normalizeImageUrls(dto.imageUrls),
           bulkPricingTiers:
@@ -158,5 +172,95 @@ export class ProductsService {
         include: { inventory: true },
       });
     });
+  }
+
+  async update(id: string, dto: UpdateProductDto) {
+    const existing = await this.prisma.product.findUnique({
+      where: { id },
+      include: { inventory: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const nextUnit = dto.unit ?? existing.unit;
+    const nextPiecesPerPack =
+      nextUnit === 'PACK'
+        ? (dto.piecesPerPack ?? existing.piecesPerPack)
+        : null;
+
+    if (
+      nextUnit === 'PACK' &&
+      (!Number.isInteger(nextPiecesPerPack) || (nextPiecesPerPack ?? 0) < 1)
+    ) {
+      throw new BadRequestException('Pieces per pack is required for packs');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const data: Prisma.ProductUpdateInput = {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.category !== undefined && { category: dto.category }),
+        ...(dto.unit !== undefined && { unit: dto.unit }),
+        piecesPerPack: nextPiecesPerPack,
+        ...(dto.isPublic !== undefined && { isPublic: dto.isPublic }),
+        ...(dto.basePrice !== undefined && {
+          basePrice: new Prisma.Decimal(dto.basePrice),
+        }),
+        ...(dto.imageUrls !== undefined && {
+          imageUrls: this.normalizeImageUrls(dto.imageUrls),
+        }),
+        ...(dto.bulkPricingTiers !== undefined && {
+          bulkPricingTiers:
+            dto.bulkPricingTiers as unknown as Prisma.InputJsonValue,
+        }),
+      };
+
+      await tx.product.update({
+        where: { id },
+        data,
+      });
+
+      if (dto.initialAvailableQty !== undefined) {
+        await tx.inventory.upsert({
+          where: { productId: id },
+          create: {
+            productId: id,
+            warehouseId: this.warehouseId(),
+            availableQty: dto.initialAvailableQty,
+            reservedQty: 0,
+          },
+          update: {
+            availableQty: dto.initialAvailableQty,
+          },
+        });
+      }
+
+      return tx.product.findUnique({
+        where: { id },
+        include: { inventory: true },
+      });
+    });
+  }
+
+  async hardDelete(id: string): Promise<{ deleted: true }> {
+    const existing = await this.prisma.product.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const orderItemCount = await this.prisma.orderItem.count({
+      where: { productId: id },
+    });
+    if (orderItemCount > 0) {
+      throw new BadRequestException(
+        'Cannot hard delete a product that exists in orders. Make it private instead.',
+      );
+    }
+
+    await this.prisma.product.delete({ where: { id } });
+    return { deleted: true };
   }
 }

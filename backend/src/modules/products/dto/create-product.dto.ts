@@ -1,13 +1,16 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Length,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { ProductUnit } from '@prisma/client';
@@ -25,6 +28,16 @@ export class CreateProductDto {
   @IsEnum(ProductUnit)
   unit!: ProductUnit;
 
+  @ValidateIf((dto: CreateProductDto) => dto.unit === ProductUnit.PACK)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  piecesPerPack?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
+
   @Type(() => Number)
   @IsNumber()
   @Min(0)
@@ -38,7 +51,11 @@ export class CreateProductDto {
   @IsOptional()
   @IsArray()
   @IsUrl(
-    { require_protocol: true, protocols: ['http', 'https'] },
+    {
+      require_protocol: true,
+      protocols: ['http', 'https'],
+      require_tld: false,
+    },
     { each: true },
   )
   imageUrls?: string[];

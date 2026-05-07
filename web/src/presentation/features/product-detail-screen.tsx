@@ -19,7 +19,6 @@ import {
   IconCheckCircle,
   IconInfo,
   IconLeaf,
-  IconList,
   IconMinus,
   IconPlus,
   IconShare,
@@ -27,13 +26,14 @@ import {
   IconTags,
   IconTruck,
 } from "@presentation/features/product-detail/pdp-icons";
+import { DesktopCartPill } from "@presentation/components/shop/desktop-cart-pill";
 import { useProductQuery } from "@presentation/hooks/use-product-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 function tierQuantityLabel(t: BulkTier): string {
@@ -59,15 +59,20 @@ function ProductDetailContent({
   data: Product;
   catalog: Product[] | undefined;
 }) {
-  const router = useRouter();
   const upsertProductLine = useCartStore((s) => s.upsertProductLine);
   const addProduct = useCartStore((s) => s.addProduct);
+  const cartLine = useCartStore(
+    (s) => s.lines.find((line) => line.productId === data.id) ?? null,
+  );
 
   const [imageIndex, setImageIndex] = useState(0);
   const [saved, setSaved] = useState(false);
   const moq = data.moqCases ?? 1;
   const presets = data.quickCasePresets ?? [1, 5, 10];
   const [cases, setCases] = useState(() => initialCaseCount(data));
+  const selectedCases = cartLine
+    ? Math.max(moq, Math.min(999, Math.floor(cartLine.quantity)))
+    : cases;
 
   const related = useMemo(() => {
     if (!data.relatedProductIds?.length || !catalog) return [];
@@ -78,9 +83,9 @@ function ProductDetailContent({
   const gallery = productGalleryUrls(data);
   const hero = gallery[imageIndex] ?? data.imageUrl;
   const tiers = productBulkTiersSorted(data);
-  const activeIdx = activeTierIndex(data, cases);
-  const unitPrice = pricePerCaseCents(data, cases);
-  const subtotal = subtotalCentsForCases(data, cases);
+  const activeIdx = activeTierIndex(data, selectedCases);
+  const unitPrice = pricePerCaseCents(data, selectedCases);
+  const subtotal = subtotalCentsForCases(data, selectedCases);
   const unitLabel = data.unitLabel ?? "unit";
   const hasSpecialPrice = productHasSpecialPrice(data);
 
@@ -88,8 +93,16 @@ function ProductDetailContent({
     return Math.max(moq, Math.min(999, Math.floor(n)));
   }
 
+  function setSyncedCases(n: number) {
+    const next = clampCases(n);
+    setCases(next);
+    if (cartLine) {
+      upsertProductLine(data, next, pricePerCaseCents(data, next));
+    }
+  }
+
   function adjustCases(delta: number) {
-    setCases((c) => clampCases(c + delta));
+    setSyncedCases(selectedCases + delta);
   }
 
   async function shareProduct() {
@@ -188,7 +201,11 @@ function ProductDetailContent({
                   )}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={src} alt="" className="h-full w-full object-contain" />
+                  <img
+                    src={src}
+                    alt=""
+                    className="h-full w-full object-contain"
+                  />
                 </button>
               ))}
             </div>
@@ -225,7 +242,9 @@ function ProductDetailContent({
                 In stock
               </div>
             ) : (
-              <span className="text-xs font-semibold text-muted">Out of stock</span>
+              <span className="text-xs font-semibold text-muted">
+                Out of stock
+              </span>
             )}
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -356,9 +375,9 @@ function ProductDetailContent({
                     type="number"
                     min={moq}
                     max={999}
-                    value={cases}
+                    value={selectedCases}
                     onChange={(e) =>
-                      setCases(clampCases(Number(e.target.value) || moq))
+                      setSyncedCases(Number(e.target.value) || moq)
                     }
                     className="w-16 border-0 bg-transparent text-center text-lg font-bold text-heading outline-none"
                   />
@@ -377,9 +396,9 @@ function ProductDetailContent({
                   <Chip
                     key={p}
                     type="button"
-                    active={cases === p}
+                    active={selectedCases === p}
                     className="flex-1 rounded-lg py-2 text-xs font-semibold"
-                    onClick={() => setCases(clampCases(p))}
+                    onClick={() => setSyncedCases(p)}
                   >
                     {p} {unitLabel}
                     {p > 1 ? "s" : ""}
@@ -392,6 +411,18 @@ function ProductDetailContent({
                   {formatMoney(subtotal, data.currency)}
                 </span>
               </div>
+              <Button
+                type="button"
+                className="mt-4 gap-2"
+                fullWidth
+                onClick={() =>
+                  upsertProductLine(data, selectedCases, unitPrice)
+                }
+              >
+                <IconCartPlus className="h-4 w-4" />
+                {cartLine ? "Update" : "Add"} {selectedCases} {unitLabel}
+                {selectedCases === 1 ? "" : "s"} to cart
+              </Button>
             </div>
           </section>
         ) : (
@@ -412,7 +443,9 @@ function ProductDetailContent({
 
         {data.logistics && data.logistics.length > 0 ? (
           <section className="mt-2 space-y-3 border-y border-default/60 bg-card p-4 sm:rounded-xl sm:border sm:border-default/60">
-            <h2 className="text-sm font-bold text-heading">Logistics and specs</h2>
+            <h2 className="text-sm font-bold text-heading">
+              Logistics and specs
+            </h2>
             <div className="grid grid-cols-2 gap-3">
               {data.logistics.map((row, i) => (
                 <div
@@ -506,36 +539,7 @@ function ProductDetailContent({
         ) : null}
       </div>
 
-      {showQuantityControls ? (
-        <div
-          className={cn(
-            "fixed left-0 right-0 z-20 border-t border-default bg-card px-3 py-3 shadow-[0_-4px_10px_rgba(0,0,0,0.06)]",
-            "max-lg:bottom-[calc(4.25rem+env(safe-area-inset-bottom,0px))] lg:bottom-6",
-          )}
-        >
-          <div className="mx-auto flex max-w-lg gap-2 lg:max-w-3xl">
-            <Link
-              href="/cart"
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-default text-primary hover:bg-secondary-bg"
-              aria-label="View cart"
-            >
-              <IconList className="h-5 w-5" />
-            </Link>
-            <Button
-              type="button"
-              className="flex-1 gap-2"
-              onClick={() => {
-                upsertProductLine(data, cases, unitPrice);
-                router.push("/cart");
-              }}
-            >
-              <IconCartPlus className="h-4 w-4" />
-              Add {cases} {unitLabel}
-              {cases === 1 ? "" : "s"} to cart
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      <DesktopCartPill />
     </div>
   );
 }
@@ -576,7 +580,5 @@ export function ProductDetailScreen() {
     );
   }
 
-  return (
-    <ProductDetailContent key={data.id} data={data} catalog={catalog} />
-  );
+  return <ProductDetailContent key={data.id} data={data} catalog={catalog} />;
 }

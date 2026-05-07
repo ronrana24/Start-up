@@ -1,7 +1,7 @@
 /** Fixed locale avoids SSR hydration mismatches (Node vs browser default locales). */
 const MONEY_LOCALE = "en-US";
 
-export function formatMoney(cents: number, currency: string = "USD"): string {
+export function formatMoney(cents: number, currency: string = "INR"): string {
   return new Intl.NumberFormat(MONEY_LOCALE, {
     style: "currency",
     currency,

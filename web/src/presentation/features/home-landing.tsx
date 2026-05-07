@@ -475,18 +475,18 @@ function SpeedNetworkAnimation() {
 }
 
 export function HomeLanding() {
-  const { data: products = [], isPending, isSuccess } = useProductsQuery();
+  // const { data: products = [], error, isPending, isSuccess } = useProductsQuery();
   const speedNetworkRef = useRef<HTMLElement>(null);
   const [speedNetworkActive, setSpeedNetworkActive] = useState(false);
 
-  const featuredPool = useMemo(() => {
-    if (!products.length) return [];
-    const out: Product[] = [];
-    while (out.length < 8) {
-      out.push(...products);
-    }
-    return out.slice(0, Math.max(products.length, 8));
-  }, [products]);
+  // const featuredPool = useMemo(() => {
+  //   if (!products.length) return [];
+  //   const out: Product[] = [];
+  //   while (out.length < 8) {
+  //     out.push(...products);
+  //   }
+  //   return out.slice(0, Math.max(products.length, 8));
+  // }, [products]);
 
   useEffect(() => {
     if (speedNetworkActive) return;
@@ -564,7 +564,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section aria-label="Featured items" className="flex flex-col gap-4">
+      {/* <section aria-label="Featured items" className="flex flex-col gap-4">
         <div>
           <h2 className="text-2xl font-bold text-heading">Featured items</h2>
           <p className="mt-1 text-sm text-secondary">Rotating picks from the catalog.</p>
@@ -574,7 +574,7 @@ export function HomeLanding() {
         ) : isSuccess && featuredPool.length ? (
           <FeaturedProductCarousel pool={featuredPool} />
         ) : null}
-      </section>
+      </section> */}
 
       <section
         ref={speedNetworkRef}

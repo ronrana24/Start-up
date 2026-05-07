@@ -9,22 +9,38 @@ import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
 import { Input } from "@presentation/components/ui/input";
 import { LinkButton } from "@presentation/components/ui/link-button";
+import { Select } from "@presentation/components/ui/select";
 import { useAppDependencies } from "@presentation/context/app-dependencies-context";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
+import {
+  MAX_ADDRESS_LINE_LEN,
+  MAX_CITY_STATE_LEN,
+  validateIndianPincode,
+} from "@presentation/lib/onboarding-validation";
 import { useAuthStore } from "@presentation/state/auth-store";
+import { City, State } from "country-state-city";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type IconProps = { className?: string };
 
-type AddressFormState = CreateUserAddressInput;
+const IN = "IN";
+
+type AddressFormState = CreateUserAddressInput & {
+  stateIso: string;
+};
+
+type AddressFieldErrors = Partial<
+  Record<"line1" | "line2" | "stateIso" | "city" | "pincode", string>
+>;
 
 const emptyAddressForm: AddressFormState = {
   line1: "",
   line2: "",
   city: "",
   state: "",
+  stateIso: "",
   pincode: "",
   isDefault: false,
 };
@@ -352,6 +368,8 @@ export function AccountScreen() {
   const [addressForm, setAddressForm] =
     useState<AddressFormState>(emptyAddressForm);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressFieldErrors, setAddressFieldErrors] =
+    useState<AddressFieldErrors>({});
   const [addressSaving, setAddressSaving] = useState(false);
 
   useEffect(() => {
@@ -395,6 +413,11 @@ export function AccountScreen() {
     () => profile ?? profileFallback(phone, userId),
     [phone, profile, userId],
   );
+  const indianStates = useMemo(() => State.getStatesOfCountry(IN), []);
+  const addressCities = useMemo(() => {
+    if (!addressForm.stateIso) return [];
+    return City.getCitiesOfState(IN, addressForm.stateIso);
+  }, [addressForm.stateIso]);
 
   if (!hasCheckedSession) {
     return (
@@ -427,15 +450,51 @@ export function AccountScreen() {
     key: K,
     value: AddressFormState[K],
   ) {
-    setAddressForm((current) => ({ ...current, [key]: value }));
+    setAddressForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "stateIso") {
+        const selectedState = indianStates.find(
+          (state) => state.isoCode === String(value),
+        );
+        next.state = selectedState?.name ?? "";
+        next.city = "";
+      }
+      return next;
+    });
+    setAddressFieldErrors({});
+    setAddressError(null);
   }
 
   function validateAddressForm(): string | null {
-    if (!addressForm.line1.trim()) return "Address line 1 is required.";
-    if (!addressForm.city.trim()) return "City is required.";
-    if (!addressForm.state.trim()) return "State is required.";
-    if (!addressForm.pincode.trim()) return "Pincode is required.";
-    return null;
+    const errors: AddressFieldErrors = {};
+    const line1 = addressForm.line1.trim();
+    const line2 = addressForm.line2?.trim() ?? "";
+    const city = addressForm.city.trim();
+
+    if (!line1) {
+      errors.line1 = "Street address is required";
+    } else if (line1.length > MAX_ADDRESS_LINE_LEN) {
+      errors.line1 = `Street address must be ${MAX_ADDRESS_LINE_LEN} characters or less`;
+    }
+    if (line2.length > MAX_ADDRESS_LINE_LEN) {
+      errors.line2 = `Line 2 must be ${MAX_ADDRESS_LINE_LEN} characters or less`;
+    }
+    if (!addressForm.stateIso || !addressForm.state.trim()) {
+      errors.stateIso = "Select a state";
+    }
+    if (!city) {
+      errors.city = "Select a city";
+    } else if (city.length > MAX_CITY_STATE_LEN) {
+      errors.city = `City must be ${MAX_CITY_STATE_LEN} characters or less`;
+    }
+    if (!validateIndianPincode(addressForm.pincode)) {
+      errors.pincode = "Enter a valid 6-digit PIN code";
+    }
+
+    setAddressFieldErrors(errors);
+    return Object.keys(errors).length > 0
+      ? "Please complete the required address fields."
+      : null;
   }
 
   async function submitAddress(e: React.FormEvent) {
@@ -453,7 +512,7 @@ export function AccountScreen() {
         line1: addressForm.line1.trim(),
         line2: addressForm.line2?.trim() || undefined,
         city: addressForm.city.trim(),
-        state: addressForm.state.trim().toUpperCase(),
+        state: addressForm.state.trim(),
         pincode: addressForm.pincode.trim(),
         isDefault: addressForm.isDefault || addresses.length === 0,
       });
@@ -464,6 +523,7 @@ export function AccountScreen() {
         return [created, ...rest];
       });
       setAddressForm(emptyAddressForm);
+      setAddressFieldErrors({});
       setAddressFormOpen(false);
     } catch (error) {
       setAddressError(domainErrorMessage(error, "Could not add address"));
@@ -610,37 +670,69 @@ export function AccountScreen() {
                 onSubmit={submitAddress}
               >
                 <Input
-                  label="Address line 1"
+                  label="Street / building *"
                   value={addressForm.line1}
                   onChange={(e) => updateAddressField("line1", e.target.value)}
-                  placeholder="Shop, building, street"
+                  placeholder="Street, building, unit"
+                  error={addressFieldErrors.line1}
+                  required
                 />
                 <Input
-                  label="Address line 2"
+                  label="Line 2 (optional)"
                   value={addressForm.line2 ?? ""}
                   onChange={(e) => updateAddressField("line2", e.target.value)}
-                  placeholder="Landmark or receiving dock"
+                  placeholder="Suite, floor, landmark"
+                  error={addressFieldErrors.line2}
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <Input
-                    label="City"
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select
+                    label="State *"
+                    name="stateIso"
+                    value={addressForm.stateIso}
+                    onChange={(e) =>
+                      updateAddressField("stateIso", e.target.value)
+                    }
+                    error={addressFieldErrors.stateIso}
+                    required
+                  >
+                    <option value="">Select state</option>
+                    {indianStates.map((state) => (
+                      <option key={state.isoCode} value={state.isoCode}>
+                        {state.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    label="City *"
+                    name="city"
                     value={addressForm.city}
                     onChange={(e) => updateAddressField("city", e.target.value)}
-                    placeholder="Bengaluru"
-                  />
-                  <Input
-                    label="State"
-                    value={addressForm.state}
-                    onChange={(e) => updateAddressField("state", e.target.value)}
-                    placeholder="KA"
-                  />
+                    disabled={!addressForm.stateIso}
+                    error={addressFieldErrors.city}
+                    required
+                  >
+                    <option value="">
+                      {addressForm.stateIso ? "Select city" : "Select state first"}
+                    </option>
+                    {addressCities.map((city, index) => (
+                      <option
+                        key={`${city.name}-${city.latitude ?? ""}-${city.longitude ?? ""}-${index}`}
+                        value={city.name}
+                      >
+                        {city.name}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
                 <Input
-                  label="Pincode"
+                  label="PIN code *"
                   value={addressForm.pincode}
                   onChange={(e) => updateAddressField("pincode", e.target.value)}
                   placeholder="560001"
                   inputMode="numeric"
+                  maxLength={6}
+                  error={addressFieldErrors.pincode}
+                  required
                 />
                 <label className="flex items-center gap-2 text-xs font-medium text-heading">
                   <input
@@ -666,6 +758,7 @@ export function AccountScreen() {
                     onClick={() => {
                       setAddressFormOpen(false);
                       setAddressError(null);
+                      setAddressFieldErrors({});
                     }}
                   >
                     Cancel

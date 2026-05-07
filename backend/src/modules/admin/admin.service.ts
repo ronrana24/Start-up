@@ -569,6 +569,123 @@ export class AdminService {
     };
   }
 
+  async productAnalytics(productId: string, inputRange?: AdminAnalyticsRange) {
+    const range = normalizeRange(inputRange);
+    const orderWhere = createdAtFilter(range);
+    const commercialOrderWhere: Prisma.OrderWhereInput = {
+      ...orderWhere,
+      status: { not: OrderStatus.CANCELLED },
+    };
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true, category: true },
+    });
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const rows = await this.prisma.orderItem.findMany({
+      where: { productId, order: commercialOrderWhere },
+      select: {
+        orderId: true,
+        quantity: true,
+        priceApplied: true,
+        order: {
+          select: {
+            userId: true,
+            createdAt: true,
+            addressSnapshot: true,
+          },
+        },
+      },
+      orderBy: { order: { createdAt: 'asc' } },
+    });
+
+    const trend = buildDayRows(
+      range,
+      rows.map((row) => row.order.createdAt),
+      (date) => ({ date, quantity: 0, revenue: 0, orders: 0 }),
+    );
+    const trendOrderIds = new Map<string, Set<string>>();
+    for (const key of trend.keys()) {
+      trendOrderIds.set(key, new Set());
+    }
+
+    const locationMap = new Map<
+      string,
+      LocationBucket & {
+        quantity: number;
+        revenue: number;
+        orderIds: Set<string>;
+      }
+    >();
+    const orderIds = new Set<string>();
+    const buyerIds = new Set<string>();
+    let quantityOrdered = 0;
+    let revenue = 0;
+
+    for (const row of rows) {
+      const lineRevenue = decimalToNumber(row.priceApplied) * row.quantity;
+      const date = dayKey(row.order.createdAt);
+      const trendRow = trend.get(date);
+      if (trendRow) {
+        trendRow.quantity += row.quantity;
+        trendRow.revenue += lineRevenue;
+        trendOrderIds.get(date)?.add(row.orderId);
+      }
+
+      const location =
+        locationFromAddressSnapshot(row.order.addressSnapshot) ??
+        unknownLocation();
+      const locationStat = locationMap.get(location.location) ?? {
+        ...location,
+        quantity: 0,
+        revenue: 0,
+        orderIds: new Set<string>(),
+      };
+      locationStat.quantity += row.quantity;
+      locationStat.revenue += lineRevenue;
+      locationStat.orderIds.add(row.orderId);
+      locationMap.set(location.location, locationStat);
+
+      quantityOrdered += row.quantity;
+      revenue += lineRevenue;
+      orderIds.add(row.orderId);
+      buyerIds.add(row.order.userId);
+    }
+
+    for (const [date, ids] of trendOrderIds) {
+      const row = trend.get(date);
+      if (row) {
+        row.orders = ids.size;
+      }
+    }
+
+    return {
+      range,
+      product,
+      totals: {
+        quantityOrdered,
+        orders: orderIds.size,
+        buyers: buyerIds.size,
+        revenue,
+        averageUnitPrice: quantityOrdered ? revenue / quantityOrdered : 0,
+      },
+      orderTrend: [...trend.values()],
+      ordersByLocation: [...locationMap.values()]
+        .sort((a, b) => b.quantity - a.quantity)
+        .map((location) => ({
+          city: location.city,
+          state: location.state,
+          location: location.location,
+          quantity: location.quantity,
+          orders: location.orderIds.size,
+          revenue: location.revenue,
+        })),
+    };
+  }
+
   async userAnalytics(userId: string, inputRange?: AdminAnalyticsRange) {
     const range = normalizeRange(inputRange);
     const orderWhere = createdAtFilter(range);

@@ -1,4 +1,7 @@
-import type { OrderReader } from "@application/ports/order-reader";
+import type {
+  OrderListPeriod,
+  OrderReader,
+} from "@application/ports/order-reader";
 import type { Order, OrderId } from "@domain/order";
 import { delay } from "@infrastructure/mock/delay";
 import {
@@ -8,7 +11,11 @@ import {
 
 export function createMockOrderReader(): OrderReader {
   return {
-    async listByUser(userId: string): Promise<Order[]> {
+    async listByUser(
+      userId: string,
+      period: OrderListPeriod = "this_month",
+    ): Promise<Order[]> {
+      void period;
       await delay(220);
       return listOrdersInternal(userId);
     },

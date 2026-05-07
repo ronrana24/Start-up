@@ -4,7 +4,10 @@ import type { OrderListPeriod } from './dto/list-orders-query.dto';
 export type OrderItemLineStatus = 'delivered' | 'processing' | 'other';
 
 export type OrderListItemLine = {
+  productId: string;
   name: string;
+  quantity: number;
+  priceApplied: string;
   status: OrderItemLineStatus;
 };
 

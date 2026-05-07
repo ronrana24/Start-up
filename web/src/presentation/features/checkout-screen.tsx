@@ -1,9 +1,11 @@
 "use client";
 
+import type { UserAddress } from "@application/ports/user-profile-gateway";
 import { cartTotalCents } from "@domain/cart";
 import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
 import { Input } from "@presentation/components/ui/input";
+import { useAppDependencies } from "@presentation/context/app-dependencies-context";
 import { usePlaceOrderMutation } from "@presentation/hooks/use-place-order-mutation";
 import { cn } from "@presentation/lib/cn";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
@@ -12,9 +14,16 @@ import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 const EST_TAX_RATE = 0.082;
+const EMPTY_ADDRESSES: UserAddress[] = [];
 
 type CheckoutStep = 1 | 2;
 type PaymentMode = "upi" | "cod";
@@ -45,7 +54,16 @@ function BackIcon({ className }: { className?: string }) {
 
 function LocationIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <path d="M12 21s-8-4.5-8-11.8A8 8 0 0 1 12 3a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8Z" />
       <circle cx="12" cy="10" r="3" />
     </svg>
@@ -54,7 +72,16 @@ function LocationIcon({ className }: { className?: string }) {
 
 function CalendarDayIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <rect x="3" y="4" width="18" height="18" rx="2" />
       <path d="M16 2v4M8 2v4M3 10h18" />
     </svg>
@@ -63,7 +90,16 @@ function CalendarDayIcon({ className }: { className?: string }) {
 
 function CardPayIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <rect x="2" y="5" width="20" height="14" rx="2" />
       <path d="M2 10h20" />
     </svg>
@@ -72,7 +108,16 @@ function CardPayIcon({ className }: { className?: string }) {
 
 function CheckIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      aria-hidden
+    >
       <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -80,7 +125,16 @@ function CheckIcon({ className }: { className?: string }) {
 
 function ChevronRightIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -88,7 +142,16 @@ function ChevronRightIcon({ className }: { className?: string }) {
 
 function BoxIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={16}
+      height={16}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <path d="M21 8v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
       <path d="M23 8H1V6a2 2 0 0 1 1.7-2l9-1.6a2 2 0 0 1 .6 0l9 1.6A2 2 0 0 1 23 6v2Z" />
     </svg>
@@ -97,7 +160,16 @@ function BoxIcon({ className }: { className?: string }) {
 
 function TruckSmallIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
       <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
       <circle cx="17" cy="18" r="2" />
@@ -108,7 +180,16 @@ function TruckSmallIcon({ className }: { className?: string }) {
 
 function ShieldIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
     </svg>
   );
@@ -116,16 +197,34 @@ function ShieldIcon({ className }: { className?: string }) {
 
 function LockIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden>
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
       <rect x="5" y="11" width="14" height="10" rx="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   );
 }
 
-function CheckoutProgress({ step, mode }: { step: CheckoutStep; mode: "configure" | "review" }) {
+function CheckoutProgress({
+  step,
+  mode,
+}: {
+  step: CheckoutStep;
+  mode: "configure" | "review";
+}) {
   const label = step === 1 ? "Step 1/2" : "Step 2/2";
-  const right = mode === "configure" ? "Review & place order" : "Final review & place order";
+  const right =
+    mode === "configure"
+      ? "Review & place order"
+      : "Final review & place order";
   return (
     <div className="px-4 pb-3 pt-1">
       <div className="mb-1 flex items-center justify-between text-[10px] font-medium text-muted">
@@ -133,8 +232,18 @@ function CheckoutProgress({ step, mode }: { step: CheckoutStep; mode: "configure
         <span>{right}</span>
       </div>
       <div className="flex h-1.5 gap-1">
-        <div className={cn("flex-1 rounded-full", step >= 1 ? "bg-primary" : "bg-default")} />
-        <div className={cn("flex-1 rounded-full", step >= 2 ? "bg-primary" : "bg-default")} />
+        <div
+          className={cn(
+            "flex-1 rounded-full",
+            step >= 1 ? "bg-primary" : "bg-default",
+          )}
+        />
+        <div
+          className={cn(
+            "flex-1 rounded-full",
+            step >= 2 ? "bg-primary" : "bg-default",
+          )}
+        />
       </div>
     </div>
   );
@@ -148,7 +257,10 @@ function buildDeliveryDateOptions(): DeliveryDateOption[] {
     const d = new Date(base);
     d.setDate(d.getDate() + i);
     const wd = d.toLocaleDateString("en-US", { weekday: "short" });
-    const md = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const md = d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
     out.push({
       id: d.toISOString().slice(0, 10),
       dayLabel: i === 1 ? "Tomorrow" : wd,
@@ -158,22 +270,29 @@ function buildDeliveryDateOptions(): DeliveryDateOption[] {
   return out;
 }
 
+function formatAddressLine(address: UserAddress): string {
+  return `${address.city}, ${address.state} ${address.pincode}`;
+}
+
 export function CheckoutScreen() {
   const router = useRouter();
+  const deps = useAppDependencies();
   const userId = useAuthStore((s) => s.userId);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
   const lines = useCartStore((s) => s.lines);
   const clearCart = useCartStore((s) => s.clear);
   const mutation = usePlaceOrderMutation(userId ?? undefined);
 
   const [step, setStep] = useState<CheckoutStep>(1);
   const [error, setError] = useState<string | null>(null);
-  const [addressEditing, setAddressEditing] = useState(false);
-  const [businessName, setBusinessName] = useState("Main Restaurant Location");
-  const [line1, setLine1] = useState("123 Culinary Blvd, Suite A");
-  const [city, setCity] = useState("Austin");
-  const [stateRegion, setStateRegion] = useState("TX");
-  const [postal, setPostal] = useState("78701");
-  const [attention, setAttention] = useState("Receiving Dock");
+  const [addresses, setAddresses] = useState<UserAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(
+    null,
+  );
+  const [addressesLoading, setAddressesLoading] = useState(false);
+  const [addressesError, setAddressesError] = useState<string | null>(null);
 
   const deliveryDatesRef = useRef<DeliveryDateOption[] | null>(null);
   const deliveryDates = useSyncExternalStore(
@@ -194,13 +313,80 @@ export function CheckoutScreen() {
   const [orderNotes, setOrderNotes] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
 
-  const effectiveDeliveryDateId = deliveryDateId ?? deliveryDates?.[0]?.id ?? null;
+  const effectiveDeliveryDateId =
+    deliveryDateId ?? deliveryDates?.[0]?.id ?? null;
 
-  const itemCount = useMemo(() => lines.reduce((n, l) => n + l.quantity, 0), [lines]);
+  const itemCount = useMemo(
+    () => lines.reduce((n, l) => n + l.quantity, 0),
+    [lines],
+  );
   const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
   const estTaxCents = Math.round(subtotalCents * EST_TAX_RATE);
   const totalWithTaxCents = subtotalCents + estTaxCents;
+
+  useEffect(() => {
+    if (!hasCheckedSession || !isAuthenticated) return;
+
+    let cancelled = false;
+
+    async function loadAddresses() {
+      setAddressesLoading(true);
+      setAddressesError(null);
+      try {
+        const profile = await deps.userProfileGateway.getProfile(accessToken);
+        if (cancelled) return;
+        const nextAddresses = profile.addresses ?? [];
+        setAddresses(nextAddresses);
+        setSelectedAddressId((current) => {
+          if (
+            current &&
+            nextAddresses.some((address) => address.id === current)
+          ) {
+            return current;
+          }
+          return (
+            nextAddresses.find((address) => address.isDefault)?.id ??
+            nextAddresses[0]?.id ??
+            null
+          );
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setAddresses([]);
+        setSelectedAddressId(null);
+        setAddressesError(
+          domainErrorMessage(err, "Could not load saved addresses"),
+        );
+      } finally {
+        if (!cancelled) {
+          setAddressesLoading(false);
+        }
+      }
+    }
+
+    void loadAddresses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    accessToken,
+    deps.userProfileGateway,
+    hasCheckedSession,
+    isAuthenticated,
+  ]);
+
+  const checkoutAddresses = isAuthenticated ? addresses : EMPTY_ADDRESSES;
+  const checkoutAddressesLoading = isAuthenticated && addressesLoading;
+  const checkoutAddressesError = isAuthenticated ? addressesError : null;
+
+  const selectedAddress = useMemo(
+    () =>
+      checkoutAddresses.find((address) => address.id === selectedAddressId) ??
+      null,
+    [checkoutAddresses, selectedAddressId],
+  );
 
   const selectedDateLabel = useMemo(() => {
     if (!deliveryDates || !effectiveDeliveryDateId) return "—";
@@ -208,7 +394,10 @@ export function CheckoutScreen() {
     return o ? `${o.dateLabel} (${o.dayLabel})` : "—";
   }, [deliveryDates, effectiveDeliveryDateId]);
 
-  const slotLabel = deliverySlot === "morning" ? "Morning (8am – 12pm)" : "Afternoon (1pm – 5pm)";
+  const slotLabel =
+    deliverySlot === "morning"
+      ? "Morning (8am – 12pm)"
+      : "Afternoon (1pm – 5pm)";
 
   const uid = userId;
 
@@ -217,10 +406,18 @@ export function CheckoutScreen() {
       <Card>
         <p className="text-secondary">Your cart is empty.</p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="secondary" onClick={() => router.push("/cart")}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.push("/cart")}
+          >
             View cart
           </Button>
-          <Button type="button" variant="secondary" onClick={() => router.push("/")}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.push("/")}
+          >
             Continue shopping
           </Button>
         </div>
@@ -229,14 +426,25 @@ export function CheckoutScreen() {
   }
 
   function addressValid(): boolean {
-    return [businessName, line1, city, stateRegion, postal].every((s) => s.trim().length > 0);
+    return Boolean(selectedAddress);
   }
 
   function goReview() {
     setError(null);
+    if (!isAuthenticated) {
+      setError("Sign in is required to place an order.");
+      return;
+    }
+    if (checkoutAddressesLoading) {
+      setError("Loading your saved addresses. Please wait a moment.");
+      return;
+    }
     if (!addressValid()) {
-      setError("Please complete all address fields.");
-      setAddressEditing(true);
+      setError(
+        checkoutAddresses.length > 0
+          ? "Choose a saved delivery address."
+          : "Add a saved address from Account before checkout.",
+      );
       return;
     }
     setStep(2);
@@ -251,6 +459,11 @@ export function CheckoutScreen() {
       setError("Sign in is required to place an order.");
       return;
     }
+    if (!selectedAddress) {
+      setError("Choose a saved delivery address before placing the order.");
+      setStep(1);
+      return;
+    }
     try {
       const order = await mutation.mutateAsync({
         userId: uid,
@@ -260,14 +473,7 @@ export function CheckoutScreen() {
           unitPriceCents: l.unitPriceCents,
           title: l.title,
         })),
-        address: {
-          line1,
-          line2: attention.trim() ? `Attn: ${attention.trim()}` : undefined,
-          city,
-          state: stateRegion,
-          pincode: postal,
-          isDefault: false,
-        },
+        addressId: selectedAddress.id,
         deliveryType: "STANDARD",
       });
       clearCart();
@@ -301,10 +507,15 @@ export function CheckoutScreen() {
           >
             <BackIcon />
           </button>
-          <h1 className="text-sm font-semibold tracking-tight text-heading">{headerTitle}</h1>
+          <h1 className="text-sm font-semibold tracking-tight text-heading">
+            {headerTitle}
+          </h1>
           <div className="h-9 w-9 shrink-0" aria-hidden />
         </header>
-        <CheckoutProgress step={step} mode={step === 1 ? "configure" : "review"} />
+        <CheckoutProgress
+          step={step}
+          mode={step === 1 ? "configure" : "review"}
+        />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[calc(13rem+env(safe-area-inset-bottom))] lg:pb-8">
@@ -315,44 +526,96 @@ export function CheckoutScreen() {
                 <LocationIcon className="text-primary" />
                 Delivery address
               </h2>
-              {!addressEditing ? (
-                <div className="relative rounded-[10px] border border-primary/30 bg-secondary-bg/80 p-3">
-                  <div className="absolute right-3 top-3 text-primary" aria-hidden>
-                    <CheckIcon className="h-4 w-4" />
-                  </div>
-                  <h3 className="mb-1 text-xs font-bold text-heading">{businessName}</h3>
-                  <p className="text-[11px] leading-relaxed text-secondary">
-                    {line1}
-                    <br />
-                    {city}, {stateRegion} {postal}
-                    <br />
-                    Attn: {attention}
+              {checkoutAddressesLoading ? (
+                <div className="rounded-[10px] border border-default bg-secondary-bg/70 p-3">
+                  <div className="h-3 w-32 animate-pulse rounded-full bg-default" />
+                  <div className="mt-3 h-2.5 w-full animate-pulse rounded-full bg-default" />
+                  <div className="mt-2 h-2.5 w-2/3 animate-pulse rounded-full bg-default" />
+                </div>
+              ) : checkoutAddresses.length > 0 ? (
+                <div className="space-y-2">
+                  {checkoutAddresses.map((address) => {
+                    const selected = address.id === selectedAddressId;
+                    return (
+                      <button
+                        key={address.id}
+                        type="button"
+                        className={cn(
+                          "group w-full rounded-[10px] border p-3 text-left transition-colors",
+                          selected
+                            ? "border-primary/40 bg-primary-light/45 shadow-sm"
+                            : "border-default bg-secondary-bg/70 hover:border-primary/25 hover:bg-secondary-bg",
+                        )}
+                        onClick={() => setSelectedAddressId(address.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                              <h3 className="text-xs font-bold text-heading">
+                                {address.isDefault
+                                  ? "Default delivery address"
+                                  : "Saved delivery address"}
+                              </h3>
+                              {address.isDefault ? (
+                                <span className="rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                  Default
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-secondary">
+                              {address.line1}
+                              {address.line2 ? (
+                                <>
+                                  <br />
+                                  {address.line2}
+                                </>
+                              ) : null}
+                              <br />
+                              {formatAddressLine(address)}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                              selected
+                                ? "border-primary bg-primary text-white"
+                                : "border-default bg-card text-transparent group-hover:border-primary/40",
+                            )}
+                            aria-hidden
+                          >
+                            <CheckIcon className="h-3 w-3" />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  <p className="pt-1 text-[10px] leading-relaxed text-muted">
+                    Billing and shipping will use the selected saved address.
+                    Addresses are managed from your account.
                   </p>
-                  <button
-                    type="button"
-                    className="mt-2 text-[10px] font-semibold text-primary hover:underline"
-                    onClick={() => setAddressEditing(true)}
-                  >
-                    Edit address
-                  </button>
                 </div>
               ) : (
-                <Card className="space-y-3 border-default/80 p-3 shadow-none">
-                  <Input label="Business / location name" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
-                  <Input label="Street address" value={line1} onChange={(e) => setLine1(e.target.value)} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="City" value={city} onChange={(e) => setCity(e.target.value)} />
-                    <Input label="State" value={stateRegion} onChange={(e) => setStateRegion(e.target.value)} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input label="Postal code" value={postal} onChange={(e) => setPostal(e.target.value)} />
-                    <Input label="Attention / dock" value={attention} onChange={(e) => setAttention(e.target.value)} />
-                  </div>
-                  <Button type="button" variant="secondary" fullWidth onClick={() => setAddressEditing(false)}>
-                    Save address
-                  </Button>
-                </Card>
+                <div className="rounded-[10px] border border-dashed border-primary/30 bg-primary-light/25 p-3">
+                  <h3 className="text-xs font-bold text-heading">
+                    No saved delivery address
+                  </h3>
+                  <p className="mt-1 text-[11px] leading-relaxed text-secondary">
+                    Add an address in your account first. Checkout will use a
+                    saved address only, so billing and shipping stay accurate.
+                  </p>
+                  <Link
+                    href="/account"
+                    className="mt-3 inline-flex min-h-9 items-center rounded-lg bg-primary px-3 text-xs font-bold text-white transition-colors hover:bg-primary-hover"
+                  >
+                    Add address
+                  </Link>
+                </div>
               )}
+              {checkoutAddressesError ? (
+                <p className="mt-2 text-xs text-red-600" role="alert">
+                  {checkoutAddressesError}
+                </p>
+              ) : null}
 
               <h2 className="mb-3 mt-5 flex items-center gap-2 text-sm font-bold text-heading">
                 <CalendarDayIcon className="text-primary" />
@@ -377,8 +640,12 @@ export function CheckoutScreen() {
                               : "border-default bg-secondary-bg/80 text-heading opacity-80 hover:opacity-100",
                           )}
                         >
-                          <span className="text-[10px] font-medium uppercase">{d.dayLabel}</span>
-                          <span className="text-sm font-bold">{d.dateLabel}</span>
+                          <span className="text-[10px] font-medium uppercase">
+                            {d.dayLabel}
+                          </span>
+                          <span className="text-sm font-bold">
+                            {d.dateLabel}
+                          </span>
                         </button>
                       );
                     })}
@@ -425,21 +692,31 @@ export function CheckoutScreen() {
                 <label
                   className={cn(
                     "flex cursor-pointer items-center justify-between rounded-[10px] border p-3",
-                    paymentMode === "upi" ? "border-primary/40 bg-primary-light/40" : "border-default bg-secondary-bg/60",
+                    paymentMode === "upi"
+                      ? "border-primary/40 bg-primary-light/40"
+                      : "border-default bg-secondary-bg/60",
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <span
                       className={cn(
                         "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                        paymentMode === "upi" ? "border-primary" : "border-default",
+                        paymentMode === "upi"
+                          ? "border-primary"
+                          : "border-default",
                       )}
                     >
-                      {paymentMode === "upi" ? <span className="h-2 w-2 rounded-full bg-primary" /> : null}
+                      {paymentMode === "upi" ? (
+                        <span className="h-2 w-2 rounded-full bg-primary" />
+                      ) : null}
                     </span>
                     <div>
-                      <span className="block text-xs font-bold text-heading">UPI</span>
-                      <span className="text-[10px] text-muted">Pay with UPI (demo — not charged)</span>
+                      <span className="block text-xs font-bold text-heading">
+                        UPI
+                      </span>
+                      <span className="text-[10px] text-muted">
+                        Pay with UPI (demo — not charged)
+                      </span>
                     </div>
                   </div>
                   <input
@@ -453,21 +730,31 @@ export function CheckoutScreen() {
                 <label
                   className={cn(
                     "flex cursor-pointer items-center justify-between rounded-[10px] border p-3",
-                    paymentMode === "cod" ? "border-primary/40 bg-primary-light/40" : "border-default bg-secondary-bg/60",
+                    paymentMode === "cod"
+                      ? "border-primary/40 bg-primary-light/40"
+                      : "border-default bg-secondary-bg/60",
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <span
                       className={cn(
                         "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                        paymentMode === "cod" ? "border-primary" : "border-default",
+                        paymentMode === "cod"
+                          ? "border-primary"
+                          : "border-default",
                       )}
                     >
-                      {paymentMode === "cod" ? <span className="h-2 w-2 rounded-full bg-primary" /> : null}
+                      {paymentMode === "cod" ? (
+                        <span className="h-2 w-2 rounded-full bg-primary" />
+                      ) : null}
                     </span>
                     <div>
-                      <span className="block text-xs font-bold text-heading">Cash on delivery</span>
-                      <span className="text-[10px] text-muted">Pay when your order arrives</span>
+                      <span className="block text-xs font-bold text-heading">
+                        Cash on delivery
+                      </span>
+                      <span className="text-[10px] text-muted">
+                        Pay when your order arrives
+                      </span>
                     </div>
                   </div>
                   <input
@@ -515,14 +802,21 @@ export function CheckoutScreen() {
                 <ShieldIcon className="mt-0.5 shrink-0 text-primary" />
                 <p>
                   By continuing, you agree to our{" "}
-                  <Link href="/terms" className="font-medium text-primary underline">
+                  <Link
+                    href="/terms"
+                    className="font-medium text-primary underline"
+                  >
                     Terms of Service
                   </Link>{" "}
                   and{" "}
-                  <Link href="/about" className="font-medium text-primary underline">
+                  <Link
+                    href="/about"
+                    className="font-medium text-primary underline"
+                  >
                     return &amp; policy info
                   </Link>
-                  . Wholesale orders are subject to availability and final confirmation.
+                  . Wholesale orders are subject to availability and final
+                  confirmation.
                 </p>
               </div>
             </section>
@@ -547,12 +841,20 @@ export function CheckoutScreen() {
                   >
                     <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-default bg-card">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={line.imageUrl} alt="" className="h-full w-full object-contain" />
+                      <img
+                        src={line.imageUrl}
+                        alt=""
+                        className="h-full w-full object-contain"
+                      />
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col justify-between">
                       <div>
-                        <h3 className="truncate text-xs font-bold text-heading">{line.title}</h3>
-                        <p className="mt-0.5 text-[10px] text-muted">SKU: {line.productId}</p>
+                        <h3 className="truncate text-xs font-bold text-heading">
+                          {line.title}
+                        </h3>
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          SKU: {line.productId}
+                        </p>
                       </div>
                       <div className="mt-2 flex items-end justify-between">
                         <span className="rounded border border-default bg-card px-2 py-0.5 text-xs font-semibold text-heading">
@@ -568,7 +870,8 @@ export function CheckoutScreen() {
                       {line.pricingSource === "SPECIAL" ? (
                         <div className="mt-1 flex items-center justify-between">
                           <span className="rounded bg-primary-light px-1.5 py-0.5 text-[9px] font-bold text-primary">
-                            {line.specialPricingLabel ?? "Special price for you"}
+                            {line.specialPricingLabel ??
+                              "Special price for you"}
                           </span>
                           {line.originalUnitPriceCents ? (
                             <span className="text-[10px] text-muted line-through">
@@ -598,20 +901,36 @@ export function CheckoutScreen() {
                     className="text-[10px] font-semibold text-primary hover:underline"
                     onClick={() => setStep(1)}
                   >
-                    Edit
+                    Change
                   </button>
                 </div>
                 <div className="rounded-lg border border-default/50 bg-secondary-bg/80 p-3 text-[11px] leading-tight text-heading">
-                  <p className="mb-1 font-semibold">{businessName}</p>
-                  <p className="text-secondary">
-                    {line1}, {city}, {stateRegion} {postal}
+                  <p className="mb-1 font-semibold">
+                    {selectedAddress?.isDefault
+                      ? "Default delivery address"
+                      : "Selected delivery address"}
                   </p>
+                  {selectedAddress ? (
+                    <p className="text-secondary">
+                      {selectedAddress.line1}
+                      {selectedAddress.line2
+                        ? `, ${selectedAddress.line2}`
+                        : ""}
+                      , {formatAddressLine(selectedAddress)}
+                    </p>
+                  ) : (
+                    <p className="text-secondary">No address selected</p>
+                  )}
                   <div className="mt-2 flex justify-between border-t border-default/50 pt-2">
                     <span className="text-muted">
-                      Date: <strong className="text-heading">{selectedDateLabel}</strong>
+                      Date:{" "}
+                      <strong className="text-heading">
+                        {selectedDateLabel}
+                      </strong>
                     </span>
                     <span className="text-muted">
-                      Time: <strong className="text-heading">{slotLabel}</strong>
+                      Time:{" "}
+                      <strong className="text-heading">{slotLabel}</strong>
                     </span>
                   </div>
                 </div>
@@ -640,9 +959,13 @@ export function CheckoutScreen() {
                         {paymentMode === "upi" ? "UPI" : "Cash on delivery"}
                       </p>
                       {paymentMode === "upi" && upiId.trim() ? (
-                        <p className="text-[9px] text-muted">VPA: {upiId.trim()}</p>
+                        <p className="text-[9px] text-muted">
+                          VPA: {upiId.trim()}
+                        </p>
                       ) : poNumber.trim() ? (
-                        <p className="text-[9px] text-muted">PO: {poNumber.trim()}</p>
+                        <p className="text-[9px] text-muted">
+                          PO: {poNumber.trim()}
+                        </p>
                       ) : (
                         <p className="text-[9px] text-muted">No PO on file</p>
                       )}
@@ -662,13 +985,21 @@ export function CheckoutScreen() {
                   onChange={(e) => setTermsAccepted(e.target.checked)}
                 />
                 <span className="text-[11px] leading-relaxed text-muted">
-                  <span className="mb-0.5 block font-semibold text-heading">I acknowledge and agree to the terms</span>
+                  <span className="mb-0.5 block font-semibold text-heading">
+                    I acknowledge and agree to the terms
+                  </span>
                   By placing this order, I agree to the{" "}
-                  <Link href="/terms" className="font-medium text-primary hover:underline">
+                  <Link
+                    href="/terms"
+                    className="font-medium text-primary hover:underline"
+                  >
                     wholesale terms of service
                   </Link>{" "}
                   and{" "}
-                  <Link href="/about" className="font-medium text-primary hover:underline">
+                  <Link
+                    href="/about"
+                    className="font-medium text-primary hover:underline"
+                  >
                     return policy information
                   </Link>
                   , and authorize this purchase on behalf of my business.
@@ -694,7 +1025,9 @@ export function CheckoutScreen() {
           </span>
         </div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium text-muted">Shipping &amp; delivery</span>
+          <span className="text-xs font-medium text-muted">
+            Shipping &amp; delivery
+          </span>
           <span className="text-sm font-semibold text-success">Free</span>
         </div>
         <div className="mb-3 flex items-center justify-between">
@@ -710,7 +1043,10 @@ export function CheckoutScreen() {
           </span>
         </div>
         {error ? (
-          <p className="mb-3 text-center text-sm text-red-600 dark:text-red-400" role="alert">
+          <p
+            className="mb-3 text-center text-sm text-red-600 dark:text-red-400"
+            role="alert"
+          >
             {error}
           </p>
         ) : null}
@@ -718,6 +1054,7 @@ export function CheckoutScreen() {
           <Button
             type="button"
             fullWidth
+            disabled={checkoutAddressesLoading}
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-[10px] text-sm font-bold shadow-md"
             onClick={goReview}
           >

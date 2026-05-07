@@ -6,7 +6,6 @@ import {
   NavCartIcon,
   NavCatalogIcon,
   NavContactIcon,
-  NavHistoryIcon,
   NavHomeIcon,
   NavLoginIcon,
   NavTrackingIcon,
@@ -17,6 +16,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { cn } from "@presentation/lib/cn";
 import { useAuthStore } from "../state/auth-store";
+import { useCartStore } from "../state/cart-store";
 
 function isOrderTrackDetail(pathname: string): boolean {
   return /^\/orders\/[^/]+\/track$/.test(pathname);
@@ -27,15 +27,21 @@ function NavLink({
   label,
   icon,
   active,
+  badgeCount,
 }: {
   href: string;
   label: string;
   icon: ReactNode;
   active: boolean;
+  badgeCount?: number;
 }) {
+  const showBadge = typeof badgeCount === "number" && badgeCount > 0;
+  const badgeLabel = badgeCount && badgeCount > 99 ? "99+" : badgeCount;
+
   return (
     <Link
       href={href}
+      aria-label={showBadge ? `${label}, ${badgeLabel} items` : label}
       className={cn(
         "flex min-h-[3.5rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.35rem] px-0.5 py-1.5 text-[10px] font-semibold leading-tight transition-colors sm:text-[11px]",
         active
@@ -43,7 +49,21 @@ function NavLink({
           : "text-secondary hover:bg-white/28 hover:text-heading",
       )}
     >
-      <span className={cn(active ? "text-primary" : "text-secondary")}>{icon}</span>
+      <span
+        className={cn(
+          "relative",
+          showBadge &&
+            "flex h-9 w-9 items-center justify-center rounded-full bg-catalog-blue/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] ring-1 ring-catalog-blue-light/40",
+          !showBadge && (active ? "text-primary" : "text-secondary"),
+        )}
+      >
+        {icon}
+        {showBadge ? (
+          <span className="absolute -right-2 -top-2 flex min-h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full border border-white/80 bg-catalog-green px-1 text-[9px] font-black leading-none text-white shadow-sm">
+            {badgeLabel}
+          </span>
+        ) : null}
+      </span>
       <span className="max-w-full truncate">{label}</span>
     </Link>
   );
@@ -54,9 +74,10 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
 
   const trackingActive =
     pathname === "/orders/tracking" || isOrderTrackDetail(pathname);
-  const historyActive = pathname === "/orders/history";
   const catalogRoute = pathname === "/catalog";
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const lines = useCartStore((s) => s.lines);
+  const cartCount = lines.reduce((n, l) => n + l.quantity, 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -109,6 +130,7 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
                 label="Cart"
                 icon={<NavCartIcon className="h-6 w-6" />}
                 active={pathname.startsWith("/cart")}
+                badgeCount={cartCount}
               />
               <NavLink
                 href="/orders/tracking"

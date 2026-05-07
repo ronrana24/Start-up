@@ -34,6 +34,18 @@ const adminOrderUserSelect = {
   role: true,
 } satisfies Prisma.UserSelect;
 
+const adminOrderItemsInclude = {
+  product: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      unit: true,
+      imageUrls: true,
+    },
+  },
+} satisfies Prisma.OrderItemInclude;
+
 function mapOrderStatusToLineStatus(
   status: OrderStatus,
 ): 'delivered' | 'processing' | 'other' {
@@ -152,10 +164,10 @@ export class OrdersService {
 
   async listForUserWithSummary(
     userId: string,
-    period: OrderListPeriod,
+    period: OrderListPeriod = OrderListPeriod.THIS_MONTH,
   ): Promise<UserOrdersListResponse> {
-    const filter = period ?? OrderListPeriod.ALL_TIME;
-    const gte = this.orderCreatedAtLowerBound(period);
+    const filter = period ?? OrderListPeriod.THIS_MONTH;
+    const gte = this.orderCreatedAtLowerBound(filter);
     const where: Prisma.OrderWhereInput = {
       userId,
       ...(gte ? { createdAt: { gte } } : {}),
@@ -184,7 +196,10 @@ export class OrdersService {
       orderAmount: o.totalAmount.toString(),
       orderDate: o.createdAt.toISOString(),
       items: o.items.map((line) => ({
+        productId: line.productId,
         name: line.product.name,
+        quantity: line.quantity,
+        priceApplied: line.priceApplied.toString(),
         status: mapOrderStatusToLineStatus(o.status),
       })),
     }));
@@ -195,7 +210,10 @@ export class OrdersService {
   async getOneForUser(userId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, userId },
-      include: { items: true, rider: true },
+      include: {
+        items: { include: { product: { select: { name: true } } } },
+        rider: true,
+      },
     });
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -222,7 +240,7 @@ export class OrdersService {
         take: params.pageSize,
         orderBy: { createdAt: 'desc' },
         include: {
-          items: true,
+          items: { include: adminOrderItemsInclude },
           user: {
             select: {
               ...adminOrderUserSelect,
@@ -252,7 +270,7 @@ export class OrdersService {
       return this.prisma.order.findUnique({
         where: { id: orderId },
         include: {
-          items: true,
+          items: { include: adminOrderItemsInclude },
           rider: true,
           user: { select: adminOrderUserSelect },
         },
@@ -298,7 +316,7 @@ export class OrdersService {
     return this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
-        items: true,
+        items: { include: adminOrderItemsInclude },
         rider: true,
         user: { select: adminOrderUserSelect },
       },

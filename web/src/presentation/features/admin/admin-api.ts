@@ -58,6 +58,8 @@ export type AdminProduct = {
   name: string;
   category: string;
   unit: ProductUnit;
+  piecesPerPack?: number | null;
+  isPublic: boolean;
   basePrice: string | number;
   imageUrls?: string[];
   bulkPricingTiers: Array<{ minQty: number; price: number }>;
@@ -77,15 +79,39 @@ export type AdminOrder = {
   deliveryFee: string | number;
   subtotalAmount: string | number;
   totalAmount: string | number;
+  addressSnapshot?: {
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    pincode?: string | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
-  user?: Pick<AdminUser, "id" | "phone" | "businessName" | "role">;
+  user?: Pick<
+    AdminUser,
+    | "id"
+    | "phone"
+    | "email"
+    | "name"
+    | "businessName"
+    | "businessType"
+    | "gstNumber"
+    | "role"
+  >;
   rider?: { id: string; name: string; phone: string } | null;
   items: Array<{
     id: string;
     productId: string;
     quantity: number;
     priceApplied: string | number;
+    product?: {
+      id: string;
+      name: string;
+      category: string;
+      unit: ProductUnit;
+      imageUrls?: string[];
+    } | null;
   }>;
 };
 
@@ -110,7 +136,11 @@ export type AdminAnalytics = {
   insights: Array<{ title: string; value: string; detail: string }>;
   ordersByStatus: Array<{ status: OrderStatus; count: number }>;
   revenueTrend: Array<{ date: string; revenue: number; orders: number }>;
-  repeatBuyerTrend: Array<{ date: string; newBuyers: number; repeatBuyers: number }>;
+  repeatBuyerTrend: Array<{
+    date: string;
+    newBuyers: number;
+    repeatBuyers: number;
+  }>;
   buyersByLocation: Array<{
     city: string;
     state: string;
@@ -207,15 +237,49 @@ export type AdminUserAnalytics = {
   }>;
 };
 
+export type AdminProductAnalytics = {
+  range: AdminAnalyticsRange;
+  product: {
+    id: string;
+    name: string;
+    category: string;
+  };
+  totals: {
+    quantityOrdered: number;
+    orders: number;
+    buyers: number;
+    revenue: number;
+    averageUnitPrice: number;
+  };
+  orderTrend: Array<{
+    date: string;
+    quantity: number;
+    revenue: number;
+    orders: number;
+  }>;
+  ordersByLocation: Array<{
+    city: string;
+    state: string;
+    location: string;
+    quantity: number;
+    orders: number;
+    revenue: number;
+  }>;
+};
+
 export type CreateAdminProductInput = {
   name: string;
   category: string;
   unit: ProductUnit;
+  piecesPerPack?: number;
+  isPublic: boolean;
   basePrice: number;
   imageUrls: string[];
   initialAvailableQty: number;
   bulkPricingTiers: Array<{ minQty: number; price: number }>;
 };
+
+export type UpdateAdminProductInput = CreateAdminProductInput;
 
 export type AdminPricingRule = {
   id: string;
@@ -312,9 +376,27 @@ export async function getAdminUserAnalytics(
 ): Promise<AdminUserAnalytics> {
   const params = new URLSearchParams({ range });
   return unwrapBody(
-    await apiJsonAuthorized<AdminUserAnalytics | ApiEnvelope<AdminUserAnalytics>>(
+    await apiJsonAuthorized<
+      AdminUserAnalytics | ApiEnvelope<AdminUserAnalytics>
+    >(
       apiBaseUrl(),
       `/api/admin/users/${userId}/analytics?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function getAdminProductAnalytics(
+  productId: string,
+  range: AdminAnalyticsRange = "30d",
+): Promise<AdminProductAnalytics> {
+  const params = new URLSearchParams({ range });
+  return unwrapBody(
+    await apiJsonAuthorized<
+      AdminProductAnalytics | ApiEnvelope<AdminProductAnalytics>
+    >(
+      apiBaseUrl(),
+      `/api/admin/products/${productId}/analytics?${params.toString()}`,
       { method: "GET" },
     ),
   );
@@ -329,9 +411,19 @@ export async function listAdminProducts(
     pageSize: String(pageSize),
   });
   return unwrapBody(
-    await apiJsonAuthorized<Paginated<AdminProduct> | ApiEnvelope<Paginated<AdminProduct>>>(
+    await apiJsonAuthorized<
+      Paginated<AdminProduct> | ApiEnvelope<Paginated<AdminProduct>>
+    >(apiBaseUrl(), `/api/products?${params.toString()}`, { method: "GET" }),
+  );
+}
+
+export async function getAdminProduct(
+  productId: string,
+): Promise<AdminProduct> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminProduct | ApiEnvelope<AdminProduct>>(
       apiBaseUrl(),
-      `/api/products?${params.toString()}`,
+      `/api/products/${productId}`,
       { method: "GET" },
     ),
   );
@@ -349,7 +441,28 @@ export async function createAdminProduct(
   );
 }
 
-export async function uploadAdminProductImages(files: File[]): Promise<string[]> {
+export async function updateAdminProduct(
+  productId: string,
+  input: UpdateAdminProductInput,
+): Promise<AdminProduct> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminProduct | ApiEnvelope<AdminProduct>>(
+      apiBaseUrl(),
+      `/api/products/${productId}`,
+      { method: "PATCH", body: input },
+    ),
+  );
+}
+
+export async function deleteAdminProduct(productId: string): Promise<void> {
+  await apiJsonAuthorized<void>(apiBaseUrl(), `/api/products/${productId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function uploadAdminProductImages(
+  files: File[],
+): Promise<string[]> {
   if (files.length === 0) return [];
   const body = new FormData();
   for (const file of files) {
@@ -377,16 +490,33 @@ export async function uploadAdminProductImages(files: File[]): Promise<string[]>
 export async function listAdminOrders(
   page = 1,
   pageSize = 100,
+  status?: OrderStatus | "ALL",
 ): Promise<Paginated<AdminOrder>> {
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
   });
+  if (status && status !== "ALL") {
+    params.set("status", status);
+  }
   return unwrapBody(
-    await apiJsonAuthorized<Paginated<AdminOrder> | ApiEnvelope<Paginated<AdminOrder>>>(
+    await apiJsonAuthorized<
+      Paginated<AdminOrder> | ApiEnvelope<Paginated<AdminOrder>>
+    >(apiBaseUrl(), `/api/admin/orders?${params.toString()}`, {
+      method: "GET",
+    }),
+  );
+}
+
+export async function updateAdminOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+): Promise<AdminOrder> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminOrder | ApiEnvelope<AdminOrder>>(
       apiBaseUrl(),
-      `/api/admin/orders?${params.toString()}`,
-      { method: "GET" },
+      `/api/admin/orders/${orderId}/status`,
+      { method: "PATCH", body: { status } },
     ),
   );
 }
@@ -402,11 +532,9 @@ export async function listAdminUsers(
     role,
   });
   return unwrapBody(
-    await apiJsonAuthorized<Paginated<AdminUser> | ApiEnvelope<Paginated<AdminUser>>>(
-      apiBaseUrl(),
-      `/api/admin/users?${params.toString()}`,
-      { method: "GET" },
-    ),
+    await apiJsonAuthorized<
+      Paginated<AdminUser> | ApiEnvelope<Paginated<AdminUser>>
+    >(apiBaseUrl(), `/api/admin/users?${params.toString()}`, { method: "GET" }),
   );
 }
 
@@ -414,11 +542,11 @@ export async function listUserPricingRules(
   userId: string,
 ): Promise<AdminPricingRule[]> {
   return unwrapBody(
-    await apiJsonAuthorized<AdminPricingRule[] | ApiEnvelope<AdminPricingRule[]>>(
-      apiBaseUrl(),
-      `/api/admin/users/${userId}/pricing-rules`,
-      { method: "GET" },
-    ),
+    await apiJsonAuthorized<
+      AdminPricingRule[] | ApiEnvelope<AdminPricingRule[]>
+    >(apiBaseUrl(), `/api/admin/users/${userId}/pricing-rules`, {
+      method: "GET",
+    }),
   );
 }
 

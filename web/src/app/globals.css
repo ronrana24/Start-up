@@ -85,7 +85,11 @@ body {
   position: relative;
   isolation: isolate;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(255, 255, 255, 0.28)),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.56),
+      rgba(255, 255, 255, 0.28)
+    ),
     linear-gradient(90deg, rgba(230, 244, 241, 0.56), rgba(255, 255, 255, 0.1));
   -webkit-backdrop-filter: blur(15px);
   backdrop-filter: blur(15px);
@@ -106,8 +110,16 @@ body {
   border-radius: inherit;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 44%),
-    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.62), transparent 34%),
-    radial-gradient(circle at 82% 100%, rgba(31, 122, 99, 0.14), transparent 32%);
+    radial-gradient(
+      circle at 18% 0%,
+      rgba(255, 255, 255, 0.62),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 82% 100%,
+      rgba(31, 122, 99, 0.14),
+      transparent 32%
+    );
 }
 
 .desktop-glass-nav::after,
@@ -306,7 +318,8 @@ body {
 }
 
 .speed-network-is-active .speed-network-progress {
-  animation: speedNetworkProgressFill 4.8s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both;
+  animation: speedNetworkProgressFill 4.8s cubic-bezier(0.4, 0, 0.2, 1) 0.2s
+    both;
 }
 
 .speed-network-is-active .speed-network-road-shine {

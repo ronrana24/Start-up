@@ -1,5 +1,6 @@
 "use client";
 
+import type { OrderListPeriod } from "@application/ports/order-reader";
 import type { Order, OrderStatus } from "@domain/order";
 import type { Product } from "@domain/product";
 import { Button } from "@presentation/components/ui/button";
@@ -58,14 +59,25 @@ function timeRangeLabel(r: TimeRange): string {
   return "All time";
 }
 
+function orderListPeriodFromTimeRange(range: TimeRange): OrderListPeriod {
+  if (range === "last3Months") return "last_3_months";
+  if (range === "all") return "all_time";
+  return "this_month";
+}
+
 export function OrderHistoryScreen() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userId = useAuthStore((s) => s.userId);
   const isQueryEnabled = Boolean(userId);
-  const { data, isPending, isError, refetch } = useOrdersQuery(userId);
   const { data: catalog } = useProductsQuery();
   const addProduct = useCartStore((s) => s.addProduct);
+  const [timeRange, setTimeRange] = useState<TimeRange>("thisMonth");
+  const orderPeriod = orderListPeriodFromTimeRange(timeRange);
+  const { data, isPending, isError, refetch } = useOrdersQuery(
+    userId,
+    orderPeriod,
+  );
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && !isAuthenticated) {
@@ -73,7 +85,6 @@ export function OrderHistoryScreen() {
     }
   }, [isAuthenticated, router]);
 
-  const [timeRange, setTimeRange] = useState<TimeRange>("last3Months");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -93,10 +104,7 @@ export function OrderHistoryScreen() {
   const usingDummyOrders =
     process.env.NODE_ENV === "development" &&
     (!isQueryEnabled ||
-      (!isPending &&
-        !isError &&
-        isQueryEnabled &&
-        (data?.length ?? 0) === 0));
+      (!isPending && !isError && isQueryEnabled && (data?.length ?? 0) === 0));
 
   const timeFiltered = useMemo(
     () => filterOrdersByTimeRange(orders, timeRange),
@@ -127,7 +135,8 @@ export function OrderHistoryScreen() {
       })
       .filter((o) => {
         if (!q) return true;
-        const hay = `${o.id} ${o.lines.map((l) => l.title).join(" ")}`.toLowerCase();
+        const hay =
+          `${o.id} ${o.lines.map((l) => l.title).join(" ")}`.toLowerCase();
         return hay.includes(q);
       })
       .sort(
@@ -308,7 +317,9 @@ export function OrderHistoryScreen() {
               <IconBox />
               <span className="text-[10px] font-medium">Total orders</span>
             </div>
-            <p className="text-lg font-bold text-heading">{spendTotals.count}</p>
+            <p className="text-lg font-bold text-heading">
+              {spendTotals.count}
+            </p>
             <p className="mt-1 text-[10px] text-muted">
               Avg {spendTotals.count > 0 ? formatMoney(spendTotals.avg) : "—"}
               /order
@@ -323,10 +334,7 @@ export function OrderHistoryScreen() {
             <h2 className="text-sm font-bold text-heading">
               Frequently reordered
             </h2>
-            <Link
-              href="/"
-              className="text-[10px] font-semibold text-primary"
-            >
+            <Link href="/" className="text-[10px] font-semibold text-primary">
               View all
             </Link>
           </div>
@@ -381,6 +389,19 @@ export function OrderHistoryScreen() {
           />
         </div>
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+          <Chip
+            type="button"
+            active={timeRange === "thisMonth"}
+            className="shrink-0 rounded-full px-3 py-1.5 text-[10px]"
+            onClick={() => {
+              setTimeRange("thisMonth");
+              setVisibleCount(PAGE_SIZE);
+            }}
+          >
+            <span className="inline-flex items-center gap-1">
+              <IconCalendar /> This month
+            </span>
+          </Chip>
           <Chip
             type="button"
             active={timeRange === "last3Months"}
@@ -457,7 +478,9 @@ export function OrderHistoryScreen() {
       <section className="mt-2 space-y-3 pb-4">
         {listFiltered.length === 0 ? (
           <Card>
-            <p className="text-sm text-secondary">No orders match your filters.</p>
+            <p className="text-sm text-secondary">
+              No orders match your filters.
+            </p>
             <button
               type="button"
               className="mt-3 text-sm font-semibold text-primary"
@@ -525,9 +548,7 @@ function OrderHistoryCard({
       <div className="flex items-start justify-between gap-2 border-b border-default/50 pb-2">
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-heading">
-              #{order.id}
-            </span>
+            <span className="text-xs font-bold text-heading">#{order.id}</span>
             <span
               className={cn(
                 "rounded-full border px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide",

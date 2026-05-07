@@ -1,4 +1,4 @@
-import { IsEnum } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
 
 export enum OrderListPeriod {
   THIS_MONTH = 'this_month',
@@ -7,6 +7,7 @@ export enum OrderListPeriod {
 }
 
 export class ListOrdersQueryDto {
+  @IsOptional()
   @IsEnum(OrderListPeriod)
-  period!: OrderListPeriod;
+  period: OrderListPeriod = OrderListPeriod.THIS_MONTH;
 }

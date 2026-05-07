@@ -10,6 +10,7 @@ type ApiProduct = {
   name: string;
   category: string;
   unit: "PIECE" | "PACK";
+  piecesPerPack?: number | null;
   basePrice: string | number;
   imageUrls?: string[];
   effectivePrice?: string | number;
@@ -75,7 +76,12 @@ function mapProduct(product: ApiProduct): Product {
     sku: product.id.slice(0, 8).toUpperCase(),
     inStock: (product.inventory?.availableQty ?? 0) > 0,
     unitLabel: product.unit.toLowerCase(),
-    packSizeNote: product.unit === "PACK" ? "pack" : "piece",
+    packSizeNote:
+      product.unit === "PACK" && product.piecesPerPack
+        ? `${product.piecesPerPack} pieces per pack`
+        : product.unit === "PACK"
+          ? "pack"
+          : "piece",
     bulkTiers: mapBulkTiers(product),
     moqCases: 1,
     quickCasePresets: [1, 5, 10],
@@ -85,7 +91,11 @@ function mapProduct(product: ApiProduct): Product {
 export function createHttpProductReader(baseUrl: string): ProductReader {
   return {
     async list(): Promise<Product[]> {
-      const params = new URLSearchParams({ page: "1", pageSize: "100" });
+      const params = new URLSearchParams({
+        page: "1",
+        pageSize: "100",
+        publicOnly: "true",
+      });
       const body = unwrapBody(
         await apiJsonAuthorized<
           ApiPaginated<ApiProduct> | ApiEnvelope<ApiPaginated<ApiProduct>>
@@ -95,11 +105,12 @@ export function createHttpProductReader(baseUrl: string): ProductReader {
     },
     async getById(id: ProductId): Promise<Product | null> {
       try {
+        const params = new URLSearchParams({ publicOnly: "true" });
         return mapProduct(
           unwrapBody(
             await apiJsonAuthorized<ApiProduct | ApiEnvelope<ApiProduct>>(
               baseUrl,
-              `/api/products/${id}`,
+              `/api/products/${id}?${params.toString()}`,
               { method: "GET" },
             ),
           ),

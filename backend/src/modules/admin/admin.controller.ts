@@ -59,6 +59,14 @@ export class AdminController {
     });
   }
 
+  @Get('products/:id/analytics')
+  productAnalytics(
+    @Param('id') id: string,
+    @Query() query: QueryAdminAnalyticsDto,
+  ) {
+    return this.admin.productAnalytics(id, query.range);
+  }
+
   @Get('users/:userId/pricing-rules')
   listUserPricingRules(@Param('userId') userId: string) {
     return this.pricingRules.listForUser(userId);

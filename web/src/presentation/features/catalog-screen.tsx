@@ -1,17 +1,24 @@
 "use client";
 
 import {
+  activeTierIndex,
   pricePerCaseCents,
   productHasSpecialPrice,
   productBulkTiersSorted,
+  productGalleryUrls,
 } from "@domain/product-pricing";
 import type { Product } from "@domain/product";
-import { cartTotalCents } from "@domain/cart";
+import { ProductImageCarousel } from "@presentation/components/product/product-image-carousel";
+import { DesktopCartPill } from "@presentation/components/shop/desktop-cart-pill";
+import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
+import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
+import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 type SortKey = "best" | "price-asc" | "price-desc";
@@ -42,32 +49,62 @@ function isEcoProduct(p: Product): boolean {
 function isBulkPack(p: Product): boolean {
   const pack = `${p.packSizeNote ?? ""} ${p.title}`;
   return (
-    /\b(250|500|1000)\s*ct\b/i.test(pack) ||
-    /bulk/i.test(pack.toLowerCase())
+    /\b(250|500|1000)\s*ct\b/i.test(pack) || /bulk/i.test(pack.toLowerCase())
   );
 }
 
-function unitSubtitle(p: Product): string {
-  const unit = p.unitLabel ?? "case";
-  const note = p.packSizeNote?.trim();
-  if (note) return `/ ${unit} (${note})`;
-  return `/ ${unit}`;
+function pluralUnit(unit: string): string {
+  if (unit.endsWith("s")) return unit;
+  if (unit === "piece") return "pieces";
+  return `${unit}s`;
 }
 
-function tierHint(p: Product): { label: string; price: string } | null {
+function productUnit(product: Product): string {
+  return product.unitLabel ?? "case";
+}
+
+function packNote(product: Product): string | null {
+  const note = product.packSizeNote?.trim();
+  if (!note) return null;
+  if (note.toLowerCase() === productUnit(product).toLowerCase()) return null;
+  return note;
+}
+
+function tierHint(
+  p: Product,
+  quantity = p.moqCases ?? 1,
+): { label: string; price: string; detail: string } | null {
   if (productHasSpecialPrice(p)) return null;
   const tiers = productBulkTiersSorted(p);
   if (!tiers.length) return null;
-  const t = tiers[0]!;
-  const unit = p.unitLabel ?? "case";
+  const safeQuantity = Math.max(quantity, p.moqCases ?? 1);
+  const unit = productUnit(p);
+  const activeIndex = activeTierIndex(p, safeQuantity);
+  const activeTier = activeIndex == null ? null : (tiers[activeIndex] ?? null);
+  const nextTier = tiers.find((tier) => safeQuantity < tier.minCases);
+  const t = activeTier ?? nextTier ?? tiers[0]!;
   return {
-    label: `${t.minCases}+ ${unit}s`,
+    label: `${t.minCases}+ ${pluralUnit(unit)}`,
     price: `${formatMoney(t.priceCents, p.currency)}/ea`,
+    detail: activeTier
+      ? nextTier
+        ? `Current tier. ${nextTier.minCases - safeQuantity} more for ${formatMoney(
+            nextTier.priceCents,
+            p.currency,
+          )}/ea.`
+        : "Best bulk tier applied."
+      : `${Math.max(0, t.minCases - safeQuantity)} more to unlock.`,
   };
+}
+
+function productTitleKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 export function CatalogScreen() {
   const { data: raw, isPending, isError, refetch } = useProductsQuery();
+  const userId = useAuthStore((s) => s.userId);
+  const { data: orders } = useOrdersQuery(userId);
   const lines = useCartStore((s) => s.lines);
   const upsertProductLine = useCartStore((s) => s.upsertProductLine);
   const setQuantity = useCartStore((s) => s.setQuantity);
@@ -77,7 +114,6 @@ export function CatalogScreen() {
   const [inStockOnly, setInStockOnly] = useState(false);
   const [ecoOnly, setEcoOnly] = useState(false);
   const [bulkOnly, setBulkOnly] = useState(false);
-  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
   const qtyFor = (id: string) =>
     lines.find((l) => l.productId === id)?.quantity ?? 0;
@@ -97,22 +133,38 @@ export function CatalogScreen() {
     return copy;
   }, [raw, search, sort, inStockOnly, ecoOnly, bulkOnly]);
 
-  const quickReorder = useMemo(
-    () => filteredSorted.slice(0, 4),
-    [filteredSorted],
-  );
+  const latestOrder = useMemo(() => {
+    if (!orders?.length) return null;
+    return (
+      [...orders].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )[0] ?? null
+    );
+  }, [orders]);
 
-  const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
-  const cartCaseCount = useMemo(
-    () => lines.reduce((n, l) => n + l.quantity, 0),
-    [lines],
-  );
+  const quickReorder = useMemo(() => {
+    if (!raw?.length || !latestOrder?.lines.length) return [];
 
-  function toggleSaved(id: string, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setSaved((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
+    const productsById = new Map(raw.map((p) => [p.id, p] as const));
+    const productsByTitle = new Map(
+      raw.map((p) => [productTitleKey(p.title), p] as const),
+    );
+    const seen = new Set<string>();
+    const products: Product[] = [];
+
+    for (const line of latestOrder.lines) {
+      const product =
+        productsById.get(line.productId) ??
+        productsByTitle.get(productTitleKey(line.title));
+
+      if (!product || seen.has(product.id)) continue;
+      seen.add(product.id);
+      products.push(product);
+    }
+
+    return products;
+  }, [raw, latestOrder]);
 
   function adjustCart(p: Product, delta: number, e: React.MouseEvent) {
     e.preventDefault();
@@ -146,7 +198,7 @@ export function CatalogScreen() {
   if (isPending) {
     return (
       <div className="min-h-[50vh] bg-catalog-surface px-4 pt-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={String(i)}
@@ -179,13 +231,20 @@ export function CatalogScreen() {
 
       <div className="sticky top-0 z-40 border-b border-catalog-border/50 bg-catalog-surface pt-6 shadow-sm">
         <header className="mb-4 flex items-center justify-between px-4">
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-catalog-text transition-colors hover:bg-black/5"
-            aria-label="Menu"
+          <Link
+            href="/"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-sm ring-1 ring-catalog-border/80 transition-colors hover:bg-white"
+            aria-label="Go to Grove home"
           >
-            <MenuIcon className="h-5 w-5" />
-          </button>
+            <Image
+              src="/grove-mark.svg"
+              alt=""
+              width={24}
+              height={24}
+              className="h-6 w-6"
+              priority
+            />
+          </Link>
           <div className="text-sm font-semibold tracking-tight text-catalog-text">
             Product Catalog
           </div>
@@ -368,14 +427,12 @@ export function CatalogScreen() {
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             {filteredSorted.map((p) => (
               <CatalogProductCard
                 key={p.id}
                 product={p}
                 qty={qtyFor(p.id)}
-                saved={!!saved[p.id]}
-                onToggleSaved={(e) => toggleSaved(p.id, e)}
                 onAdjust={(delta, e) => adjustCart(p, delta, e)}
               />
             ))}
@@ -389,37 +446,7 @@ export function CatalogScreen() {
         </section>
       </div>
 
-      {lines.length > 0 ? (
-        <div className="pointer-events-none fixed inset-x-0 z-30 mb-2 px-4 max-lg:bottom-[calc(3.75rem+env(safe-area-inset-bottom))] lg:bottom-6">
-          <div className="pointer-events-auto mx-auto max-w-lg">
-            <div className="flex items-center justify-between rounded-2xl border border-catalog-blue-light/20 bg-catalog-blue p-3 shadow-[var(--shadow-catalog-cart)]">
-              <div className="flex items-center gap-3">
-                <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/10">
-                  <CartIcon className="h-4 w-4 text-white" />
-                  <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-catalog-blue bg-catalog-green text-[9px] font-bold text-white">
-                    {cartCaseCount > 99 ? "99+" : cartCaseCount}
-                  </span>
-                </div>
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-white/70">
-                    Subtotal
-                  </p>
-                  <p className="text-sm font-bold text-white">
-                    {formatMoney(subtotalCents, "USD")}
-                  </p>
-                </div>
-              </div>
-              <Link
-                href="/cart"
-                className="flex items-center gap-2 rounded-[10px] bg-white px-4 py-2 text-xs font-bold text-catalog-blue transition-colors hover:bg-catalog-surface"
-              >
-                View Cart
-                <ArrowRightIcon className="h-2.5 w-2.5" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DesktopCartPill />
     </div>
   );
 }
@@ -427,113 +454,88 @@ export function CatalogScreen() {
 function CatalogProductCard({
   product: p,
   qty,
-  saved,
-  onToggleSaved,
   onAdjust,
 }: {
   product: Product;
   qty: number;
-  saved: boolean;
-  onToggleSaved: (e: React.MouseEvent) => void;
   onAdjust: (delta: number, e: React.MouseEvent) => void;
 }) {
+  const router = useRouter();
   const out = p.inStock === false;
-  const hint = tierHint(p);
-  const badges = p.badges ?? [];
+  const displayQty = qty > 0 ? qty : (p.moqCases ?? 1);
+  const hint = tierHint(p, displayQty);
   const hasSpecialPrice = productHasSpecialPrice(p);
+  const unit = productUnit(p);
+  const note = packNote(p);
+  const unitPriceCents = pricePerCaseCents(p, displayQty);
+  const imageUrls = productGalleryUrls(p);
+
+  function goToDetail() {
+    router.push(`/products/${p.id}`);
+  }
 
   return (
-    <div
+    <article
+      role="link"
+      tabIndex={0}
       className={cn(
-        "flex flex-col overflow-hidden rounded-xl border border-catalog-border/50 bg-card shadow-sm",
+        "group flex min-h-full cursor-pointer flex-col overflow-hidden rounded-xl border border-catalog-border bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-catalog-green/40 hover:shadow-md",
         out && "opacity-75",
       )}
+      onClick={goToDetail}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          goToDetail();
+        }
+      }}
     >
-      <Link href={`/products/${p.id}`} className="relative block">
-        <div
-          className={cn(
-            "relative flex h-[120px] items-center justify-center bg-catalog-input p-3",
-            out && "grayscale",
-          )}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={p.imageUrl}
-            alt=""
-            className="h-full w-full object-contain mix-blend-multiply"
-          />
-          {out ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-catalog-surface/40 backdrop-blur-[1px]">
+      <ProductImageCarousel
+        imageUrls={imageUrls}
+        categoryLabel={p.brand ?? "General"}
+        categoryPosition="left"
+        className={cn("h-44 sm:h-52 lg:h-48 xl:h-44", out && "grayscale")}
+        centerOverlay={
+          out ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-catalog-surface/40 backdrop-blur-[1px]">
               <span className="rounded bg-catalog-text px-2 py-1 text-[10px] font-bold text-white">
                 Out of Stock
               </span>
             </div>
-          ) : (
-            <>
-              {badges.length > 0 ? (
-                <div className="absolute left-2 top-2 flex flex-col gap-1">
-                  {badges.slice(0, 2).map((b) => (
-                    <span
-                      key={b.label}
-                      className={cn(
-                        "rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white",
-                        b.tone === "accent"
-                          ? "bg-catalog-blue"
-                          : "bg-catalog-green",
-                      )}
-                    >
-                      {b.label}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <button
-                type="button"
-                onClick={onToggleSaved}
-                className={cn(
-                  "absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow-sm transition-colors",
-                  saved ? "text-catalog-blue" : "text-catalog-text-muted hover:text-catalog-blue",
-                )}
-                aria-label={saved ? "Remove save" : "Save item"}
-              >
-                <BookmarkIcon className="h-2.5 w-2.5" filled={saved} />
-              </button>
-            </>
-          )}
-        </div>
-      </Link>
+          ) : null
+        }
+      />
 
-      <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-catalog-text-muted">
-          {p.brand ?? "—"}
-        </p>
-        <Link href={`/products/${p.id}`}>
-          <h3 className="line-clamp-2 text-xs font-semibold leading-tight text-catalog-text">
+      <div className="flex flex-1 flex-col space-y-3 p-3 sm:p-4">
+        <div>
+          <h3 className="line-clamp-2 text-sm font-bold leading-tight text-catalog-text sm:text-base">
             {p.title}
           </h3>
-        </Link>
+          {note ? (
+            <p className="mt-1 line-clamp-1 text-xs font-medium text-catalog-text-muted">
+              {note}
+            </p>
+          ) : null}
+        </div>
 
-        <div className="mt-1 flex items-end justify-between">
-          <div>
+        <div className="rounded-lg border border-catalog-border bg-catalog-surface p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-catalog-text-muted">
+            Price
+          </p>
+          <div className="mt-1">
             {hasSpecialPrice && p.specialPricing?.originalPriceCents ? (
               <span className="block text-[10px] font-semibold text-catalog-text-muted line-through">
                 {formatMoney(p.specialPricing.originalPriceCents, p.currency)}
               </span>
             ) : null}
-            <span className="text-sm font-bold text-catalog-text">
-              {formatMoney(
-                pricePerCaseCents(
-                  p,
-                  qty > 0 ? qty : (p.moqCases ?? 1),
-                ),
-                p.currency,
-              )}
+            <span className="text-lg font-black text-catalog-text">
+              {formatMoney(unitPriceCents, p.currency)}
             </span>
-            <span className="block text-[9px] text-catalog-text-muted">
-              {unitSubtitle(p)}
+            <span className="ml-1 text-[11px] font-bold text-catalog-text-muted">
+              / {unit}
             </span>
             {hasSpecialPrice ? (
-              <span className="mt-0.5 block text-[9px] font-bold text-catalog-green">
+              <span className="mt-1 block text-[10px] font-black text-catalog-green">
                 Special price for you
               </span>
             ) : null}
@@ -541,16 +543,25 @@ function CatalogProductCard({
         </div>
 
         {hint && !out ? (
-          <div className="mt-1 rounded border border-catalog-border/30 bg-catalog-surface p-1.5">
-            <div className="flex justify-between text-[9px] text-catalog-text-muted">
+          <div className="rounded-lg border border-catalog-green/20 bg-catalog-green-muted/40 p-3">
+            <div className="flex items-center justify-between gap-2 text-[10px]">
+              <span className="font-black uppercase tracking-wide text-catalog-text-muted">
+                Bulk tier
+              </span>
+              <span className="font-black text-catalog-green">
+                {hint.price}
+              </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-1 text-[11px] leading-snug text-catalog-text-muted">
               <span>{hint.label}</span>
-              <span className="font-medium text-catalog-green">{hint.price}</span>
+              <span aria-hidden>&middot;</span>
+              <span>{hint.detail}</span>
             </div>
           </div>
         ) : null}
 
         {out ? (
-          <div className="mt-auto flex items-center justify-center rounded-lg border border-catalog-border/50 bg-catalog-input p-2">
+          <div className="mt-auto flex min-h-11 items-center justify-center rounded-lg border border-catalog-border/50 bg-catalog-input p-2">
             <span className="text-[10px] font-medium text-catalog-text-muted">
               Notify When Available
             </span>
@@ -558,7 +569,7 @@ function CatalogProductCard({
         ) : (
           <div
             className={cn(
-              "mt-auto flex items-center justify-between rounded-lg border p-1",
+              "mt-auto flex min-h-11 items-center justify-between rounded-lg border p-1",
               qty > 0
                 ? "border-catalog-green/30 bg-catalog-green-muted/50"
                 : "border-catalog-border/50 bg-catalog-input",
@@ -568,7 +579,7 @@ function CatalogProductCard({
             <button
               type="button"
               className={cn(
-                "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                "flex h-8 w-8 items-center justify-center rounded-md transition-colors",
                 qty > 0
                   ? "text-catalog-green hover:bg-catalog-green/10"
                   : "text-catalog-text-muted hover:text-catalog-text",
@@ -581,7 +592,7 @@ function CatalogProductCard({
             </button>
             <span
               className={cn(
-                "w-6 text-center text-xs font-semibold",
+                "min-w-8 text-center text-sm font-black",
                 qty > 0 ? "font-bold text-catalog-green" : "text-catalog-text",
               )}
             >
@@ -590,7 +601,7 @@ function CatalogProductCard({
             <button
               type="button"
               className={cn(
-                "flex h-6 w-6 items-center justify-center rounded-md border shadow-sm transition-colors",
+                "flex h-8 w-8 items-center justify-center rounded-md border shadow-sm transition-colors",
                 qty > 0
                   ? "border-transparent bg-catalog-green text-white"
                   : "border-catalog-border/50 bg-white text-catalog-text",
@@ -603,15 +614,7 @@ function CatalogProductCard({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function MenuIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z" />
-    </svg>
+    </article>
   );
 }
 
@@ -649,7 +652,12 @@ function SearchIcon({ className }: { className?: string }) {
 
 function BarcodeIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
       <path d="M2 4h2v16H2V4zm4 0h1v16H6V4zm3 0h3v16H9V4zm5 0h1v16h-1V4zm3 0h2v16h-2V4zm4 0h1v16h-1V4z" />
     </svg>
   );
@@ -712,59 +720,6 @@ function MinusIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path d="M5 12h14" />
-    </svg>
-  );
-}
-
-function CartIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <circle cx="9" cy="21" r="1" />
-      <circle cx="20" cy="21" r="1" />
-      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-    </svg>
-  );
-}
-
-function ArrowRightIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <path d="M5 12h14M12 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-function BookmarkIcon({
-  className,
-  filled,
-}: {
-  className?: string;
-  filled?: boolean;
-}) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill={filled ? "currentColor" : "none"}
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
     </svg>
   );
 }

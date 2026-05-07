@@ -2,16 +2,35 @@
 
 import { Button } from "@presentation/components/ui/button";
 import { Input } from "@presentation/components/ui/input";
+import { Select } from "@presentation/components/ui/select";
+import {
+  IconBookmark,
+  IconCartPlus,
+  IconCheckCircle,
+  IconShare,
+  IconTags,
+} from "@presentation/features/product-detail/pdp-icons";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
+import { formatMoney } from "@presentation/lib/format-money";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import type { InputHTMLAttributes } from "react";
+import { ProductCategory } from "../../../../public/constants/product-category";
 import type { CreateAdminProductInput, ProductUnit } from "./admin-api";
 import { createAdminProduct, uploadAdminProductImages } from "./admin-api";
 
 type Tier = { minQty: string; price: string };
 type ProductImageInput = { id: string; file: File; previewUrl: string };
+type PreviewTier = { minQty: number; priceCents: number };
+type PriceInputProps = Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "className" | "type"
+> & {
+  label: string;
+};
 
 const maxProductImages = 10;
+const productCategoryOptions = Object.values(ProductCategory);
 
 function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -31,17 +50,277 @@ function cssImageUrl(url: string): string {
   return `url(${JSON.stringify(url)})`;
 }
 
+function rupeeCents(value: string): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.round(amount * 100) : 0;
+}
+
+function previewTierQuantityLabel(tier: PreviewTier): string {
+  return `${tier.minQty}+ units`;
+}
+
+function unitText(unit: ProductUnit): string {
+  return unit.toLowerCase();
+}
+
+function PriceInput({ label, id, ...props }: PriceInputProps) {
+  const inputId = id ?? props.name;
+  return (
+    <label className="flex w-full flex-col gap-1.5 text-sm">
+      <span className="font-medium text-heading">{label}</span>
+      <div className="group flex min-h-11 overflow-hidden rounded-lg border border-input-border bg-input-bg shadow-sm transition-shadow focus-within:border-border-focus focus-within:ring-2 focus-within:ring-primary/20">
+        <span className="flex w-11 shrink-0 items-center justify-center border-r border-input-border bg-catalog-green-muted text-base font-black text-catalog-green">
+          ₹
+        </span>
+        <input
+          id={inputId}
+          type="number"
+          className="min-h-11 w-full bg-transparent px-3 text-heading outline-none placeholder:text-input-placeholder"
+          {...props}
+        />
+      </div>
+    </label>
+  );
+}
+
+function BuyerProductPreviewModal({
+  name,
+  category,
+  unit,
+  piecesPerPack,
+  basePrice,
+  initialAvailableQty,
+  tiers,
+  images,
+  onClose,
+}: {
+  name: string;
+  category: string;
+  unit: ProductUnit;
+  piecesPerPack: string;
+  basePrice: string;
+  initialAvailableQty: string;
+  tiers: Tier[];
+  images: ProductImageInput[];
+  onClose: () => void;
+}) {
+  const title = name.trim() || "Product name preview";
+  const brand = category.trim() || "Category";
+  const unitLabel = unitText(unit);
+  const basePriceCents = rupeeCents(basePrice);
+  const availableQty = Number(initialAvailableQty);
+  const inStock = Number.isFinite(availableQty) && availableQty > 0;
+  const packSizeNote =
+    unit === "PACK"
+      ? `${piecesPerPack.trim() || "0"} pieces per pack`
+      : "Sold by piece";
+  const gallery = images.map((image) => image.previewUrl);
+  const hero = gallery[0] ?? "/placeholder-product.svg";
+  const previewTiers: PreviewTier[] = tiers
+    .filter((tier) => tier.minQty.trim() || tier.price.trim())
+    .map((tier) => ({
+      minQty: Number(tier.minQty),
+      priceCents: rupeeCents(tier.price),
+    }))
+    .filter(
+      (tier) =>
+        Number.isInteger(tier.minQty) &&
+        tier.minQty > 0 &&
+        Number.isFinite(tier.priceCents) &&
+        tier.priceCents >= 0,
+    )
+    .sort((a, b) => a.minQty - b.minQty);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Buyer product preview"
+    >
+      <div className="max-h-[94vh] w-full max-w-5xl overflow-hidden rounded-t-2xl border border-catalog-border bg-catalog-surface shadow-2xl sm:rounded-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-catalog-border bg-card px-4 py-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-catalog-green">
+              Buyer preview
+            </p>
+            <h2 className="text-sm font-bold text-catalog-text">
+              How customers will see this product
+            </h2>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-9 px-3 text-xs"
+            onClick={onClose}
+          >
+            Close
+          </Button>
+        </div>
+
+        <div className="max-h-[calc(94vh-4rem)] overflow-y-auto p-3 sm:p-5">
+          <div className="mx-auto max-w-lg overflow-hidden rounded-2xl border border-default bg-page shadow-sm">
+            <div className="h-1 w-full bg-primary" />
+            <div className="sticky top-0 z-10 border-b border-default/60 bg-page/95 px-4 py-3 backdrop-blur">
+              <header className="flex items-center justify-between gap-2">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full text-heading">
+                  <span className="text-lg leading-none">‹</span>
+                </span>
+                <span className="text-sm font-semibold text-heading">
+                  Product details
+                </span>
+                <span className="flex h-10 w-10 items-center justify-center rounded-full text-heading">
+                  <IconShare className="h-5 w-5" />
+                </span>
+              </header>
+            </div>
+
+            <section className="overflow-hidden border-b border-default/60 bg-card">
+              <div className="relative flex h-[280px] items-center justify-center bg-input-bg p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={hero}
+                  alt=""
+                  className="max-h-full max-w-full object-contain"
+                />
+                <span className="absolute left-4 top-4 rounded bg-primary px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+                  Preview
+                </span>
+                <span className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-card text-secondary shadow-md ring-1 ring-default">
+                  <IconBookmark className="h-4 w-4" />
+                </span>
+              </div>
+              {gallery.length > 1 ? (
+                <div className="no-scrollbar flex gap-2 overflow-x-auto p-4">
+                  {gallery.map((src, index) => (
+                    <div
+                      key={`${src}-${index}`}
+                      className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-default bg-input-bg p-1"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={src}
+                        alt=""
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="mt-2 space-y-3 border-b border-default/60 bg-card p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                {brand} • PREVIEW
+              </p>
+              <h1 className="text-xl font-bold leading-tight text-heading">
+                {title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <div className="flex items-center gap-1 text-xs font-semibold text-primary">
+                  <IconCheckCircle />
+                  {inStock ? "In stock" : "Stock not added yet"}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <span className="text-2xl font-bold text-heading">
+                  {formatMoney(basePriceCents, "INR")}
+                </span>
+                <span className="mb-1 text-sm font-medium text-muted">
+                  / {unitLabel}
+                </span>
+              </div>
+              <p className="text-xs text-muted">{packSizeNote}</p>
+              <p className="text-sm leading-relaxed text-secondary">
+                {title} for wholesale disposable supply orders.
+              </p>
+            </section>
+
+            <section className="mt-2 space-y-4 border-y border-default/60 bg-card p-4">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-heading">
+                <IconTags className="h-4 w-4 text-primary" />
+                Bulk pricing tiers
+              </h2>
+              {previewTiers.length > 0 ? (
+                <div className="overflow-hidden rounded-xl border border-default/60">
+                  <div className="grid grid-cols-3 gap-0 bg-secondary-bg px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                    <span>Quantity</span>
+                    <span className="text-center">Price / {unitLabel}</span>
+                    <span className="text-right">Savings</span>
+                  </div>
+                  {previewTiers.map((tier, index) => {
+                    const savings = Math.max(0, basePriceCents - tier.priceCents);
+                    return (
+                      <div
+                        key={`${tier.minQty}-${index}`}
+                        className="grid grid-cols-3 items-center border-t border-default/40 px-3 py-3 text-xs"
+                      >
+                        <div className="font-semibold text-heading">
+                          {previewTierQuantityLabel(tier)}
+                        </div>
+                        <div className="text-center font-bold text-heading">
+                          {formatMoney(tier.priceCents, "INR")}
+                        </div>
+                        <div className="text-right font-semibold text-muted">
+                          {savings > 0
+                            ? `${formatMoney(savings, "INR")} off`
+                            : "—"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-default/60 bg-page p-4 text-sm text-secondary">
+                  No bulk tiers added yet. Buyers will see the base price.
+                </div>
+              )}
+
+              <div className="rounded-xl border border-default/60 bg-page p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-heading">
+                    Quantity ({unitLabel}s)
+                  </span>
+                  <span className="text-xs font-medium text-muted">
+                    MOQ: 1 {unitLabel}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between border-t border-default/60 pt-3 text-sm">
+                  <span className="font-medium text-muted">Subtotal</span>
+                  <span className="text-xl font-bold text-heading">
+                    {formatMoney(basePriceCents, "INR")}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <div className="border-t border-default bg-card px-3 py-3">
+              <Button type="button" className="w-full gap-2" disabled>
+                <IconCartPlus className="h-4 w-4" />
+                Add 1 {unitLabel} to cart
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AdminProductNewScreen() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [unit, setUnit] = useState<ProductUnit>("PACK");
+  const [piecesPerPack, setPiecesPerPack] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
   const [basePrice, setBasePrice] = useState("");
   const [initialAvailableQty, setInitialAvailableQty] = useState("");
   const [tiers, setTiers] = useState<Tier[]>([{ minQty: "", price: "" }]);
   const [images, setImages] = useState<ProductImageInput[]>([]);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -60,10 +339,24 @@ export function AdminProductNewScreen() {
     setTiers((current) => [...current, { minQty: "", price: "" }]);
   }
 
+  function removeTier(index: number) {
+    setTiers((current) => {
+      if (current.length <= 1) return current;
+      return current.filter((_, i) => i !== index);
+    });
+  }
+
   function updateTier(index: number, patch: Partial<Tier>) {
     setTiers((current) =>
       current.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)),
     );
+  }
+
+  function updateUnit(nextUnit: ProductUnit) {
+    setUnit(nextUnit);
+    if (nextUnit === "PIECE") {
+      setPiecesPerPack("");
+    }
   }
 
   function addImageFiles(files: FileList | File[]) {
@@ -140,10 +433,17 @@ export function AdminProductNewScreen() {
   function payload(imageUrls: string[]): CreateAdminProductInput | null {
     const parsedBase = Number(basePrice);
     const parsedStock = Number(initialAvailableQty);
+    const parsedPiecesPerPack = Number(piecesPerPack);
     if (!name.trim()) return null;
     if (!category.trim()) return null;
     if (!Number.isFinite(parsedBase) || parsedBase < 0) return null;
     if (!Number.isFinite(parsedStock) || parsedStock < 0) return null;
+    if (
+      unit === "PACK" &&
+      (!Number.isInteger(parsedPiecesPerPack) || parsedPiecesPerPack < 1)
+    ) {
+      return null;
+    }
     const parsedTiers = tiers
       .filter((tier) => tier.minQty.trim() || tier.price.trim())
       .map((tier) => ({
@@ -163,8 +463,10 @@ export function AdminProductNewScreen() {
     }
     return {
       name: name.trim(),
-      category: category.trim().toLowerCase(),
+      category: category.trim(),
       unit,
+      ...(unit === "PACK" ? { piecesPerPack: parsedPiecesPerPack } : {}),
+      isPublic,
       basePrice: parsedBase,
       imageUrls,
       initialAvailableQty: Math.floor(parsedStock),
@@ -175,7 +477,9 @@ export function AdminProductNewScreen() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!payload([])) {
-      setError("Please complete product fields with valid prices and stock.");
+      setError(
+        "Please complete product fields with valid prices, stock, and pack details.",
+      );
       return;
     }
     setIsSaving(true);
@@ -186,7 +490,9 @@ export function AdminProductNewScreen() {
       );
       const input = payload(imageUrls);
       if (!input) {
-        setError("Please complete product fields with valid prices and stock.");
+        setError(
+          "Please complete product fields with valid prices, stock, and pack details.",
+        );
         return;
       }
       await createAdminProduct(input);
@@ -198,10 +504,23 @@ export function AdminProductNewScreen() {
     }
   }
 
+  const availableQuantityLabel = initialAvailableQty.trim() || "0";
+  const piecesPerPackLabel = piecesPerPack.trim() || "0";
+  const availableUnitLabel =
+    unit === "PACK"
+      ? Number(availableQuantityLabel) === 1
+        ? "pack"
+        : "packs"
+      : Number(availableQuantityLabel) === 1
+        ? "piece"
+        : "pieces";
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-catalog-text">Add new Product</h1>
+        <h1 className="text-2xl font-bold text-catalog-text">
+          Add new Product
+        </h1>
         <p className="text-sm text-catalog-text-muted">
           Create a product and its starting inventory in one step.
         </p>
@@ -219,42 +538,89 @@ export function AdminProductNewScreen() {
             placeholder='10" Sugarcane Bagasse Plates'
             required
           />
-          <Input
+          <Select
             label="Category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            placeholder="plates"
             required
-          />
-          <label className="flex w-full flex-col gap-1.5 text-sm">
-            <span className="font-medium text-heading">Unit</span>
-            <select
-              value={unit}
-              onChange={(e) => setUnit(e.target.value as ProductUnit)}
-              className="min-h-11 rounded-lg border border-input-border bg-input-bg px-3 text-heading outline-none focus:border-border-focus focus:ring-2 focus:ring-primary/20"
-            >
-              <option value="PACK">PACK</option>
-              <option value="PIECE">PIECE</option>
-            </select>
+          >
+            <option value="">Select category</option>
+            {productCategoryOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Unit"
+            value={unit}
+            onChange={(e) => updateUnit(e.target.value as ProductUnit)}
+          >
+            <option value="PACK">PACK</option>
+            <option value="PIECE">PIECE</option>
+          </Select>
+          {unit === "PACK" ? (
+            <div className="space-y-1">
+              <Input
+                label="Pieces in one pack"
+                type="number"
+                min={1}
+                step={1}
+                value={piecesPerPack}
+                onChange={(e) => setPiecesPerPack(e.target.value)}
+                required
+              />
+              <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
+                Each pack contains {piecesPerPackLabel}{" "}
+                {Number(piecesPerPackLabel) === 1 ? "piece" : "pieces"}.
+              </p>
+            </div>
+          ) : null}
+          <label className="flex min-h-11 items-start gap-3 rounded-lg border border-catalog-border bg-catalog-surface px-3 py-3 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-catalog-border text-catalog-green focus:ring-catalog-green/30"
+              checked={isPublic}
+              onChange={(e) => setIsPublic(e.target.checked)}
+            />
+            <span>
+              <span className="block font-bold text-catalog-text">
+                Make product public
+              </span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-catalog-text-muted">
+                Public products are visible to buyers in the catalog. Keep this
+                unchecked to save the product as an internal draft.
+              </span>
+            </span>
           </label>
-          <Input
-            label="Base price (INR)"
-            type="number"
-            min={0}
-            step="0.01"
-            value={basePrice}
-            onChange={(e) => setBasePrice(e.target.value)}
-            required
-          />
-          <Input
-            label="Initial available stock"
-            type="number"
-            min={0}
-            step={1}
-            value={initialAvailableQty}
-            onChange={(e) => setInitialAvailableQty(e.target.value)}
-            required
-          />
+          <div className="space-y-1">
+            <PriceInput
+              label="Cost Price"
+              min={0}
+              step="0.01"
+              value={basePrice}
+              onChange={(e) => setBasePrice(e.target.value)}
+              required
+            />
+            <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
+              The cost price of the product is {basePrice} per {availableUnitLabel}.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Input
+              label="Available Quantity"
+              type="number"
+              min={0}
+              step={1}
+              value={initialAvailableQty}
+              onChange={(e) => setInitialAvailableQty(e.target.value)}
+              required
+            />
+            <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
+              You have {availableQuantityLabel} {availableUnitLabel} available.
+            </p>
+          </div>
         </div>
 
         <section className="space-y-3">
@@ -350,11 +716,11 @@ export function AdminProductNewScreen() {
                   onDragEnd={() => setDraggingImageId(null)}
                 >
                   <div className="relative flex aspect-square items-center justify-center overflow-hidden rounded-lg border border-catalog-border bg-card">
-                      <div
-                        aria-hidden
-                        className="h-full w-full bg-cover bg-center"
-                        style={{ backgroundImage: cssImageUrl(image.previewUrl) }}
-                      />
+                    <div
+                      aria-hidden
+                      className="h-full w-full bg-cover bg-center"
+                      style={{ backgroundImage: cssImageUrl(image.previewUrl) }}
+                    />
                     {index === 0 ? (
                       <span className="absolute left-1 top-1 rounded-full bg-catalog-green px-2 py-0.5 text-[10px] font-bold text-white">
                         First
@@ -428,23 +794,40 @@ export function AdminProductNewScreen() {
             </button>
           </div>
           {tiers.map((tier, index) => (
-            <div key={String(index)} className="grid gap-3 sm:grid-cols-2">
-              <Input
-                label="Minimum quantity"
-                type="number"
-                min={1}
-                step={1}
-                value={tier.minQty}
-                onChange={(e) => updateTier(index, { minQty: e.target.value })}
-              />
-              <Input
-                label="Tier price (INR)"
-                type="number"
-                min={0}
-                step="0.01"
-                value={tier.price}
-                onChange={(e) => updateTier(index, { price: e.target.value })}
-              />
+            <div key={String(index)} className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-catalog-text-muted">
+                  Tier {index + 1}
+                </p>
+                {tiers.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-red-600 hover:underline"
+                    onClick={() => removeTier(index)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Minimum quantity"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={tier.minQty}
+                  onChange={(e) =>
+                    updateTier(index, { minQty: e.target.value })
+                  }
+                />
+                <PriceInput
+                  label="Tier price"
+                  min={0}
+                  step="0.01"
+                  value={tier.price}
+                  onChange={(e) => updateTier(index, { price: e.target.value })}
+                />
+              </div>
             </div>
           ))}
         </section>
@@ -462,12 +845,33 @@ export function AdminProductNewScreen() {
           <Button
             type="button"
             variant="secondary"
+            onClick={() => setPreviewOpen(true)}
+          >
+            Preview
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
             onClick={() => router.push("/admin/products")}
           >
             Cancel
           </Button>
         </div>
       </form>
+
+      {previewOpen ? (
+        <BuyerProductPreviewModal
+          name={name}
+          category={category}
+          unit={unit}
+          piecesPerPack={piecesPerPack}
+          basePrice={basePrice}
+          initialAvailableQty={initialAvailableQty}
+          tiers={tiers}
+          images={images}
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
