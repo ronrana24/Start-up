@@ -7,6 +7,8 @@ export type Coordinates = {
 
 export type OrderStatus =
   | "pending"
+  | "assigned"
+  | "picked_up"
   | "confirmed"
   | "packed"
   | "shipped"

@@ -78,6 +78,30 @@ const configuration = () => {
     warehouse: {
       defaultId: process.env.DEFAULT_WAREHOUSE_ID ?? 'default',
     },
+    delivery: {
+      locationUpdateIntervalSeconds: parseInt(
+        process.env.RIDER_LOCATION_UPDATE_INTERVAL_SECONDS ?? '15',
+        10,
+      ),
+      pickupLabel: process.env.DELIVERY_PICKUP_LABEL ?? 'Main warehouse',
+      pickupCoordinates: parseCoordinates(
+        process.env.DELIVERY_PICKUP_LAT,
+        process.env.DELIVERY_PICKUP_LNG,
+      ),
+      fcmPush: {
+        enabled: parseBoolean(process.env.FCM_PUSH_ENABLED, true),
+      },
+      expoPush: {
+        enabled: parseBoolean(process.env.EXPO_PUSH_ENABLED, false),
+        accessToken: optionalString(process.env.EXPO_ACCESS_TOKEN),
+      },
+      firebase: {
+        projectId: optionalString(process.env.FIREBASE_PROJECT_ID),
+        serviceAccountJson: optionalString(
+          process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+        ),
+      },
+    },
   };
 };
 
@@ -314,6 +338,28 @@ function parseCorsOrigins(raw: string | undefined): string[] {
       .filter(Boolean);
   }
   return ['http://localhost:3000', 'http://127.0.0.1:3000'];
+}
+
+function parseCoordinates(
+  rawLat: string | undefined,
+  rawLng: string | undefined,
+): { lat: number; lng: number } | null {
+  if (!rawLat || !rawLng) {
+    return null;
+  }
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+  return { lat, lng };
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

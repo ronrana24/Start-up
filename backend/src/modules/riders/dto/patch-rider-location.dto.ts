@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsNumber, Max, Min } from 'class-validator';
+import { IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class PatchRiderLocationDto {
   @Type(() => Number)
@@ -13,4 +13,11 @@ export class PatchRiderLocationDto {
   @Min(-180)
   @Max(180)
   lng!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(360)
+  heading?: number;
 }

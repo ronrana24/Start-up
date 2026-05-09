@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Rider Delivery</string>
+    <string name="notification_channel_orders">New delivery orders</string>
+    <string name="notification_channel_tracking">Live delivery tracking</string>
+    <string name="tracking_notification_title">Live tracking active</string>
+    <string name="tracking_notification_body">Sharing your location for the active delivery</string>
+</resources>

@@ -25,6 +25,8 @@ enum DeliveryType {
 
 enum OrderStatus {
   PLACED
+  RIDER_ASSIGNED
+  PICKED_UP
   CONFIRMED
   PACKED
   OUT_FOR_DELIVERY
@@ -141,6 +143,8 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([deliveryType])
+  @@index([riderId])
+  @@index([riderId, status])
 }
 
 model OrderItem {
@@ -210,8 +214,26 @@ model Rider {
   status          RiderStatus @default(IDLE)
   currentLocation Json?
   orders          Order[]
+  devices         RiderDevice[]
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+
+  @@index([status])
+}
+
+model RiderDevice {
+  id         String   @id @default(cuid())
+  riderId    String
+  rider      Rider    @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  pushToken  String   @unique
+  platform   String?
+  isActive   Boolean  @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([riderId])
+  @@index([isActive])
 }
 
 model OtpChallenge {

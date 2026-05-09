@@ -22,6 +22,27 @@ function isOrderTrackDetail(pathname: string): boolean {
   return /^\/orders\/[^/]+\/track$/.test(pathname);
 }
 
+function isOrderConfirmation(pathname: string): boolean {
+  return /^\/orders\/[^/]+\/confirmation$/.test(pathname);
+}
+
+function isProductDetail(pathname: string): boolean {
+  return /^\/products\/[^/]+$/.test(pathname);
+}
+
+function hasFlushMobileHeader(pathname: string): boolean {
+  return (
+    pathname === "/account" ||
+    pathname === "/cart" ||
+    pathname === "/checkout" ||
+    pathname === "/orders/history" ||
+    pathname === "/orders/tracking" ||
+    isOrderTrackDetail(pathname) ||
+    isOrderConfirmation(pathname) ||
+    isProductDetail(pathname)
+  );
+}
+
 function NavLink({
   href,
   label,
@@ -75,35 +96,25 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
   const trackingActive =
     pathname === "/orders/tracking" || isOrderTrackDetail(pathname);
   const catalogRoute = pathname === "/catalog";
+  const flushMobileHeader = hasFlushMobileHeader(pathname);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const lines = useCartStore((s) => s.lines);
   const cartCount = lines.reduce((n, l) => n + l.quantity, 0);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header
-        className={cn(
-          "sticky top-0 z-10 border-b border-default bg-card/95 backdrop-blur lg:hidden",
-          catalogRoute && "hidden",
-        )}
-      >
-        <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3 sm:max-w-3xl">
-          <Link href="/" className="text-lg font-bold text-primary">
-            Grove
-          </Link>
-        </div>
-      </header>
-
+    <div className="flex min-h-0 max-w-full flex-1 flex-col overflow-x-hidden">
       <div className="sticky top-0 z-50 hidden lg:block">
         <DesktopNavBar />
       </div>
 
       <main
         className={cn(
-          "mx-auto flex min-h-0 w-full flex-1 pb-24 sm:max-w-3xl md:max-w-5xl lg:max-w-6xl lg:pb-8 xl:max-w-7xl 2xl:max-w-[88rem]",
+          "mx-auto flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col items-stretch overflow-x-hidden pb-24 sm:max-w-3xl md:max-w-5xl lg:max-w-6xl lg:pb-8 xl:max-w-7xl 2xl:max-w-[88rem]",
           catalogRoute
             ? "px-0 py-0"
-            : "px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6 lg:px-10 xl:px-12",
+            : flushMobileHeader
+              ? "px-4 pt-0 sm:px-6 sm:pt-0 md:px-8 md:pt-0 lg:px-10 lg:pt-6 xl:px-12"
+              : "px-4 py-4 sm:px-6 sm:py-5 md:px-8 md:py-6 lg:px-10 xl:px-12",
         )}
       >
         {children}

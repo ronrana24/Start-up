@@ -11,6 +11,8 @@ import {
   User,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DeliveryEventsService } from '../delivery/delivery-events.service';
+import { DeliveryPushService } from '../delivery/delivery-push.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { UsersService } from '../users/users.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -46,6 +48,12 @@ const adminOrderItemsInclude = {
   },
 } satisfies Prisma.OrderItemInclude;
 
+const deliveryOrderInclude = {
+  items: { include: adminOrderItemsInclude },
+  rider: true,
+  user: { select: adminOrderUserSelect },
+} satisfies Prisma.OrderInclude;
+
 function mapOrderStatusToLineStatus(
   status: OrderStatus,
 ): 'delivered' | 'processing' | 'other' {
@@ -65,6 +73,8 @@ export class OrdersService {
     private readonly pricing: PricingService,
     private readonly inventory: InventoryService,
     private readonly users: UsersService,
+    private readonly deliveryEvents: DeliveryEventsService,
+    private readonly deliveryPush: DeliveryPushService,
   ) {}
 
   async create(user: User, dto: CreateOrderDto) {
@@ -108,7 +118,7 @@ export class OrdersService {
       pincode: address.pincode,
     };
 
-    return this.prisma.$transaction(
+    const order = await this.prisma.$transaction(
       async (tx) => {
         for (const line of pricedLines) {
           await this.inventory.reserveInTransaction(
@@ -144,6 +154,11 @@ export class OrdersService {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    const fullOrder = await this.getDeliveryOrderOrThrow(order.id);
+    this.deliveryEvents.orderCreated(fullOrder);
+    void this.deliveryPush.notifyAvailableRiders(fullOrder);
+    return fullOrder;
   }
 
   /** Lower bound (inclusive) for `createdAt` in UTC; `undefined` means all time. */
@@ -269,11 +284,7 @@ export class OrdersService {
     if (order.status === next) {
       return this.prisma.order.findUnique({
         where: { id: orderId },
-        include: {
-          items: { include: adminOrderItemsInclude },
-          rider: true,
-          user: { select: adminOrderUserSelect },
-        },
+        include: deliveryOrderInclude,
       });
     }
     assertOrderStatusTransition(order.status, next);
@@ -288,10 +299,7 @@ export class OrdersService {
           );
         }
       }
-      if (
-        next === OrderStatus.DELIVERED &&
-        order.status !== OrderStatus.DELIVERED
-      ) {
+      if (next === OrderStatus.DELIVERED && order.status !== next) {
         for (const item of order.items) {
           await this.inventory.consumeReservedInTransaction(
             tx,
@@ -299,6 +307,12 @@ export class OrdersService {
             item.quantity,
           );
         }
+      }
+
+      if (
+        (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED) &&
+        order.riderId
+      ) {
         if (order.riderId) {
           await tx.rider.update({
             where: { id: order.riderId },
@@ -313,14 +327,24 @@ export class OrdersService {
       });
     });
 
-    return this.prisma.order.findUnique({
+    const updated = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        items: { include: adminOrderItemsInclude },
-        rider: true,
-        user: { select: adminOrderUserSelect },
-      },
+      include: deliveryOrderInclude,
     });
+    if (updated) {
+      this.deliveryEvents.orderStatusChanged(updated);
+      if (
+        order.riderId &&
+        (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED)
+      ) {
+        this.deliveryEvents.riderAvailabilityChanged({
+          riderId: order.riderId,
+          available: true,
+          reason: 'order_terminal',
+        });
+      }
+    }
+    return updated;
   }
 
   async assignRider(orderId: string, riderId: string) {
@@ -342,6 +366,17 @@ export class OrdersService {
       throw new NotFoundException('Rider not found');
     }
 
+    const riderAssignableStatuses: OrderStatus[] = [
+      OrderStatus.PLACED,
+      OrderStatus.CONFIRMED,
+      OrderStatus.PACKED,
+    ];
+    const shouldMarkAssigned = riderAssignableStatuses.includes(order.status);
+    const nextStatus = shouldMarkAssigned
+      ? OrderStatus.RIDER_ASSIGNED
+      : order.status;
+    assertOrderStatusTransition(order.status, nextStatus);
+
     await this.prisma.$transaction(async (tx) => {
       if (order.riderId && order.riderId !== riderId) {
         await tx.rider.update({
@@ -355,17 +390,40 @@ export class OrdersService {
       });
       await tx.order.update({
         where: { id: orderId },
-        data: { riderId },
+        data: { riderId, status: nextStatus },
       });
     });
 
-    return this.prisma.order.findUnique({
+    const updated = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        items: true,
-        rider: true,
-        user: { select: adminOrderUserSelect },
-      },
+      include: deliveryOrderInclude,
     });
+    if (updated) {
+      if (order.riderId && order.riderId !== riderId) {
+        this.deliveryEvents.riderAvailabilityChanged({
+          riderId: order.riderId,
+          available: true,
+          reason: 'order_reassigned',
+        });
+      }
+      this.deliveryEvents.riderAvailabilityChanged({
+        riderId,
+        available: false,
+        reason: 'order_assigned',
+      });
+      this.deliveryEvents.orderAssigned(updated);
+    }
+    return updated;
+  }
+
+  private async getDeliveryOrderOrThrow(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: deliveryOrderInclude,
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    return order;
   }
 }

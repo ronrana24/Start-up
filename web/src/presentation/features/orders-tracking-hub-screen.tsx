@@ -1,11 +1,13 @@
 "use client";
 
 import type { Coordinates, Order, OrderDeliveryAddress } from "@domain/order";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Card } from "@presentation/components/ui/card";
 import { LinkButton } from "@presentation/components/ui/link-button";
 import { useOrderTrackingQuery } from "@presentation/hooks/use-order-tracking-query";
 import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { cn } from "@presentation/lib/cn";
+import { createDeliverySocket } from "@presentation/lib/delivery-realtime";
 import { useAuthStore } from "@presentation/state/auth-store";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -35,6 +37,10 @@ function statusLabel(status: Order["status"]): string {
   switch (status) {
     case "pending":
       return "Order placed";
+    case "assigned":
+      return "Rider assigned";
+    case "picked_up":
+      return "Picked up";
     case "confirmed":
       return "Confirmed";
     case "packed":
@@ -52,6 +58,10 @@ function statusMessage(status: Order["status"]): string {
   switch (status) {
     case "pending":
       return "We are confirming your wholesale order.";
+    case "assigned":
+      return "A rider has accepted this delivery.";
+    case "picked_up":
+      return "Your order has been picked up.";
     case "confirmed":
       return "Your order is confirmed and waiting to be packed.";
     case "packed":
@@ -109,6 +119,23 @@ function phoneHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, "")}`;
 }
 
+function PhoneIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.35 1.9.66 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.31 1.85.53 2.81.66A2 2 0 0 1 22 16.92Z" />
+    </svg>
+  );
+}
+
 function distanceKm(
   a?: Coordinates | null,
   b?: Coordinates | null,
@@ -128,7 +155,12 @@ function distanceKm(
 
 function etaLabel(order: Order, distance: number | null): string {
   if (order.status === "delivered") return "Delivered";
-  if (order.status !== "shipped") return "Assigning";
+  if (order.status === "pending" || order.status === "confirmed") {
+    return "Assigning";
+  }
+  if (order.status === "assigned" || order.status === "packed") {
+    return "Pickup";
+  }
   if (distance == null) return "Updating";
   const minutes = Math.max(8, Math.round((distance / 18) * 60));
   return `${minutes} min`;
@@ -155,13 +187,31 @@ function directionsHref(order: Order): string {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
-function TrackingMap({ order }: { order: Order }) {
+function TrackingMap({
+  order,
+  fullBleed = false,
+}: {
+  order: Order;
+  fullBleed?: boolean;
+}) {
   const query = encodeURIComponent(mapQuery(order));
   const mapSrc = `https://maps.google.com/maps?q=${query}&z=13&output=embed`;
 
   return (
-    <section className="overflow-hidden rounded-[1.75rem] border border-catalog-border bg-card shadow-sm">
-      <div className="relative h-72 bg-catalog-surface">
+    <section
+      className={cn(
+        "overflow-hidden border border-catalog-border bg-card shadow-sm",
+        fullBleed
+          ? "rounded-none border-x-0 sm:rounded-[1.75rem] sm:border-x"
+          : "rounded-[1.75rem]",
+      )}
+    >
+      <div
+        className={cn(
+          "relative bg-catalog-surface",
+          fullBleed ? "h-[58svh] min-h-[24rem] sm:h-72 sm:min-h-0" : "h-72",
+        )}
+      >
         <iframe
           src={mapSrc}
           title="Order tracking map"
@@ -173,7 +223,12 @@ function TrackingMap({ order }: { order: Order }) {
         <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-white/60 bg-white/90 px-3 py-2 text-xs font-bold text-catalog-text shadow-sm backdrop-blur">
           Google map
         </div>
-        <div className="absolute inset-x-4 bottom-4 grid grid-cols-2 gap-2">
+        <div
+          className={cn(
+            "absolute inset-x-4 bottom-4 grid grid-cols-2 gap-2",
+            fullBleed && "hidden sm:grid",
+          )}
+        >
           <div className="rounded-2xl border border-white/60 bg-white/90 p-3 shadow-sm backdrop-blur">
             <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
               Rider
@@ -198,11 +253,49 @@ function TrackingMap({ order }: { order: Order }) {
         href={directionsHref(order)}
         target="_blank"
         rel="noreferrer"
-        className="flex min-h-11 items-center justify-center text-sm font-black text-catalog-green"
+        className={cn(
+          "min-h-11 items-center justify-center text-sm font-black text-catalog-green",
+          fullBleed ? "hidden sm:flex" : "flex",
+        )}
       >
         Open route in Google Maps
       </Link>
     </section>
+  );
+}
+
+function OrderSelectorPills({
+  orders,
+  selectedOrderId,
+  onSelect,
+}: {
+  orders: Order[];
+  selectedOrderId?: string;
+  onSelect: (orderId: string) => void;
+}) {
+  return (
+    <div className="sticky top-[4.25rem] z-30 -mx-4 border-b border-catalog-border/60 px-4 py-2 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-0">
+      <div className="no-scrollbar flex snap-x gap-2 overflow-x-auto pb-1">
+        {orders.map((order) => {
+          const active = order.id === selectedOrderId;
+          return (
+            <button
+              key={order.id}
+              type="button"
+              className={cn(
+                "shrink-0 snap-start rounded-full border px-4 py-2 text-xs font-black transition-colors",
+                active
+                  ? "border-catalog-green bg-catalog-green text-white shadow-sm"
+                  : "border-catalog-border bg-card text-catalog-text shadow-sm hover:bg-catalog-green-muted hover:text-catalog-green",
+              )}
+              onClick={() => onSelect(order.id)}
+            >
+              {shortOrderId(order.id)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -223,36 +316,46 @@ function RiderCard({ order }: { order: Order }) {
   }
 
   return (
-    <section className="flex items-center gap-3 rounded-[1.5rem] border border-catalog-border bg-card p-4 shadow-sm">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-catalog-green-muted text-base font-black text-catalog-green">
-        {rider.photoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={rider.photoUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          initials(rider.name)
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
-          Your rider
+    <section className="rounded-[1.5rem] border border-catalog-border bg-card p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-black uppercase tracking-wide text-catalog-text-muted">
+          Rider details
         </p>
-        <h2 className="truncate text-base font-black text-catalog-text">
-          {rider.name}
-        </h2>
-        <p className="text-xs font-semibold text-catalog-text-muted">
-          {rider.phone}
-        </p>
+        <span className="rounded-full bg-catalog-green-muted px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-catalog-green">
+          Assigned
+        </span>
       </div>
-      <Link
-        href={phoneHref(rider.phone)}
-        className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-catalog-green px-5 text-sm font-black text-white shadow-sm transition-colors hover:bg-catalog-green-hover"
-      >
-        Call
-      </Link>
+
+      <div className="mt-3 flex items-center gap-3">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-catalog-green-muted text-base font-black text-catalog-green ring-1 ring-catalog-green/15">
+          {rider.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={rider.photoUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            initials(rider.name)
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-black text-catalog-text">
+            {rider.name}
+          </h2>
+          <p className="mt-0.5 truncate text-xs font-semibold text-catalog-text-muted">
+            {rider.phone}
+          </p>
+        </div>
+        <Link
+          href={phoneHref(rider.phone)}
+          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-catalog-green px-3 text-sm font-black text-white shadow-sm transition-colors hover:bg-catalog-green-hover sm:px-5"
+          aria-label={`Call ${rider.name}`}
+        >
+          <PhoneIcon className="h-4 w-4" />
+          <span className="hidden sm:inline">Call</span>
+        </Link>
+      </div>
     </section>
   );
 }
@@ -329,38 +432,42 @@ function TrackingDetails({
     distance == null ? "Updating" : `${distance.toFixed(1)} km`;
 
   return (
-    <div className="space-y-4">
-      <TrackingMap order={order} />
+    <div className="relative -mx-4 sm:mx-0 sm:space-y-4">
+      <div className="sticky top-[7.5rem] z-0 sm:static">
+        <TrackingMap order={order} fullBleed />
+      </div>
 
-      <section className="grid grid-cols-3 gap-2">
-        <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
-            ETA
-          </p>
-          <p className="mt-1 text-sm font-black text-catalog-text">
-            {etaLabel(order, distance)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
-            Distance
-          </p>
-          <p className="mt-1 text-sm font-black text-catalog-text">
-            {distanceLabel}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
-            Items
-          </p>
-          <p className="mt-1 text-sm font-black text-catalog-text">
-            {itemCount(order)}
-          </p>
-        </div>
-      </section>
+      <div className="relative z-10 -mt-16 space-y-4 rounded-t-[2rem] bg-catalog-surface/50 px-4 pb-8 pt-4 shadow-[0_-24px_60px_-32px_rgba(15,81,50,0.7)] backdrop-blur sm:mt-4 sm:rounded-none sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-0">
+        <section className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
+              ETA
+            </p>
+            <p className="mt-1 text-sm font-black text-catalog-text">
+              {etaLabel(order, distance)}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
+              Distance
+            </p>
+            <p className="mt-1 text-sm font-black text-catalog-text">
+              {distanceLabel}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
+            <p className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
+              Items
+            </p>
+            <p className="mt-1 text-sm font-black text-catalog-text">
+              {itemCount(order)}
+            </p>
+          </div>
+        </section>
 
-      <RiderCard order={order} />
-      <TrackingStatus order={order} dataUpdatedAt={dataUpdatedAt} />
+        <RiderCard order={order} />
+        <TrackingStatus order={order} dataUpdatedAt={dataUpdatedAt} />
+      </div>
     </div>
   );
 }
@@ -368,6 +475,7 @@ function TrackingDetails({
 export function OrdersTrackingHubScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userId = useAuthStore((s) => s.userId);
+  const accessToken = useAuthStore((s) => s.accessToken);
   const [chosenOrderId, setChosenOrderId] = useState<string | null>(null);
   const { data, isPending, isError, refetch } = useOrdersQuery(
     isAuthenticated ? userId : null,
@@ -393,13 +501,31 @@ export function OrdersTrackingHubScreen() {
     dataUpdatedAt: selectedDataUpdatedAt,
     isPending: selectedPending,
     isError: selectedError,
+    refetch: refetchSelected,
   } = useOrderTrackingQuery(selectedOrderId, userId);
   const selectedOrder = selectedDetail ?? selectedSummary;
+
+  useEffect(() => {
+    if (!selectedOrderId || !userId) return;
+    const socket = createDeliverySocket(accessToken);
+    const reload = () => {
+      void refetch();
+      void refetchSelected();
+    };
+    socket.emit("order:subscribe", { orderId: selectedOrderId });
+    socket.on("order.assigned", reload);
+    socket.on("order.updated", reload);
+    socket.on("order.status_changed", reload);
+    socket.on("rider.location_updated", reload);
+    return () => {
+      socket.disconnect();
+    };
+  }, [accessToken, refetch, refetchSelected, selectedOrderId, userId]);
 
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-bold text-heading">Tracking</h1>
+        <MobilePageHeader title="Track orders" fallbackHref="/" />
         <Card>
           <p className="text-sm text-secondary">
             Sign in to see your orders and track shipments.
@@ -414,17 +540,32 @@ export function OrdersTrackingHubScreen() {
 
   if (isPending) {
     return (
-      <div className="space-y-4">
-        <div className="h-8 w-40 animate-pulse rounded bg-secondary-bg" />
-        <div className="h-12 animate-pulse rounded-full bg-secondary-bg" />
-        <div className="h-72 animate-pulse rounded-[1.75rem] bg-secondary-bg" />
-        <div className="grid grid-cols-3 gap-2">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={String(index)}
-              className="h-20 animate-pulse rounded-2xl bg-secondary-bg"
-            />
-          ))}
+      <div className="flex min-h-[calc(100svh-6rem)] flex-col gap-0">
+        <MobilePageHeader title="Track orders" fallbackHref="/" />
+        <div className="sticky top-[4.25rem] z-30 -mx-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-2 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+          <div className="flex gap-2 overflow-hidden pb-1">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={String(index)}
+                className="h-9 w-28 shrink-0 animate-pulse rounded-full bg-secondary-bg"
+              />
+            ))}
+          </div>
+        </div>
+        <div className="relative -mx-4 sm:mx-0">
+          <div className="h-[58svh] min-h-[24rem] animate-pulse bg-secondary-bg sm:h-72 sm:min-h-0 sm:rounded-[1.75rem]" />
+          <div className="relative z-10 -mt-16 space-y-4 rounded-t-[2rem] bg-catalog-surface/95 px-4 pb-8 pt-4 shadow-[0_-24px_60px_-32px_rgba(15,81,50,0.7)] sm:mt-4 sm:rounded-none sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:shadow-none">
+            <div className="grid grid-cols-3 gap-2">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={String(index)}
+                  className="h-20 animate-pulse rounded-2xl bg-secondary-bg"
+                />
+              ))}
+            </div>
+            <div className="h-24 animate-pulse rounded-[1.5rem] bg-secondary-bg" />
+            <div className="h-48 animate-pulse rounded-[1.5rem] bg-secondary-bg" />
+          </div>
         </div>
       </div>
     );
@@ -432,65 +573,48 @@ export function OrdersTrackingHubScreen() {
 
   if (isError || !data) {
     return (
-      <Card>
-        <p className="text-secondary">Could not load orders.</p>
-        <button
-          type="button"
-          className="mt-3 text-sm font-semibold text-primary"
-          onClick={() => refetch()}
-        >
-          Retry
-        </button>
-      </Card>
+      <div className="flex flex-col gap-4">
+        <MobilePageHeader title="Track orders" fallbackHref="/" />
+        <Card>
+          <p className="text-secondary">Could not load orders.</p>
+          <button
+            type="button"
+            className="mt-3 text-sm font-semibold text-primary"
+            onClick={() => refetch()}
+          >
+            Retry
+          </button>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-4 bg-catalog-surface text-catalog-text">
-      <div className="px-1">
-        <h1 className="text-2xl font-black tracking-tight text-catalog-text">
-          Track orders
-        </h1>
-        <p className="mt-1 text-sm text-catalog-text-muted">
-          Live rider location, ETA, and order updates.
-        </p>
-      </div>
+    <div className="flex min-h-[calc(100svh-6rem)] flex-col gap-0 text-catalog-text">
+      <MobilePageHeader title="Track orders" fallbackHref="/" />
 
       {sorted.length === 0 ? (
-        <Card>
-          <p className="text-secondary">No orders yet.</p>
-          <Link
-            href="/"
-            className="mt-3 inline-block text-sm font-semibold text-primary"
-          >
-            Start shopping
-          </Link>
-        </Card>
+        <div className="mt-4">
+          <Card>
+            <p className="text-secondary">No orders yet.</p>
+            <Link
+              href="/"
+              className="mt-3 inline-block text-sm font-semibold text-primary"
+            >
+              Start shopping
+            </Link>
+          </Card>
+        </div>
       ) : (
         <>
-          <div className="no-scrollbar flex gap-2 overflow-x-auto px-1 pb-1">
-            {sorted.map((order) => {
-              const active = order.id === selectedOrderId;
-              return (
-                <button
-                  key={order.id}
-                  type="button"
-                  className={cn(
-                    "shrink-0 rounded-full border px-4 py-2 text-xs font-black transition-colors",
-                    active
-                      ? "border-catalog-green bg-catalog-green text-white shadow-sm"
-                      : "border-catalog-border bg-card text-catalog-text hover:bg-catalog-green-muted hover:text-catalog-green",
-                  )}
-                  onClick={() => setChosenOrderId(order.id)}
-                >
-                  {shortOrderId(order.id)}
-                </button>
-              );
-            })}
-          </div>
+          <OrderSelectorPills
+            orders={sorted}
+            selectedOrderId={selectedOrderId}
+            onSelect={setChosenOrderId}
+          />
 
           {selectedPending && !selectedOrder ? (
-            <div className="h-72 animate-pulse rounded-[1.75rem] bg-secondary-bg" />
+            <div className="-mx-4 h-[58svh] min-h-[24rem] animate-pulse bg-secondary-bg sm:mx-0 sm:h-72 sm:min-h-0 sm:rounded-[1.75rem]" />
           ) : selectedError || !selectedOrder ? (
             <Card>
               <p className="text-secondary">Could not load tracking details.</p>

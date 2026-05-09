@@ -1,9 +1,11 @@
 "use client";
 
 import { cn } from "@presentation/lib/cn";
+import { createDeliverySocket } from "@presentation/lib/delivery-realtime";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
+import { useAuthStore } from "@presentation/state/auth-store";
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   listAdminOrders,
   updateAdminOrderStatus,
@@ -15,6 +17,8 @@ import { useAdminQuery } from "./use-admin-query";
 
 const orderStatuses: OrderStatus[] = [
   "PLACED",
+  "RIDER_ASSIGNED",
+  "PICKED_UP",
   "CONFIRMED",
   "PACKED",
   "OUT_FOR_DELIVERY",
@@ -26,6 +30,10 @@ const statusFilters: Array<OrderStatus | "ALL"> = ["ALL", ...orderStatuses];
 
 const statusStyles: Record<OrderStatus, string> = {
   PLACED: "border-catalog-blue-light bg-catalog-blue-light text-catalog-blue",
+  RIDER_ASSIGNED:
+    "border-catalog-blue-light bg-catalog-blue-light text-catalog-blue",
+  PICKED_UP:
+    "border-catalog-green-border bg-catalog-green-muted text-catalog-green",
   CONFIRMED:
     "border-catalog-green-border bg-catalog-green-muted text-catalog-green",
   PACKED:
@@ -37,9 +45,11 @@ const statusStyles: Record<OrderStatus, string> = {
 };
 
 const allowedStatusTransitions: Record<OrderStatus, OrderStatus[]> = {
-  PLACED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["PACKED", "CANCELLED"],
-  PACKED: ["OUT_FOR_DELIVERY", "CANCELLED"],
+  PLACED: ["RIDER_ASSIGNED", "CONFIRMED", "CANCELLED"],
+  RIDER_ASSIGNED: ["PICKED_UP", "OUT_FOR_DELIVERY", "CANCELLED"],
+  PICKED_UP: ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],
+  CONFIRMED: ["PACKED", "RIDER_ASSIGNED", "CANCELLED"],
+  PACKED: ["RIDER_ASSIGNED", "OUT_FOR_DELIVERY", "CANCELLED"],
   OUT_FOR_DELIVERY: ["DELIVERED", "CANCELLED"],
   DELIVERED: [],
   CANCELLED: [],
@@ -71,6 +81,7 @@ function firstProductImage(item: AdminOrder["items"][number]): string | null {
 }
 
 export function AdminOrdersScreen() {
+  const accessToken = useAuthStore((s) => s.accessToken);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "ALL">("ALL");
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [draftStatuses, setDraftStatuses] = useState<
@@ -85,6 +96,19 @@ export function AdminOrdersScreen() {
   );
 
   const orders = useMemo(() => data?.items ?? [], [data?.items]);
+
+  useEffect(() => {
+    const socket = createDeliverySocket(accessToken);
+    const reload = () => {
+      void refetch();
+    };
+    socket.on("order.created", reload);
+    socket.on("order.assigned", reload);
+    socket.on("order.status_changed", reload);
+    return () => {
+      socket.disconnect();
+    };
+  }, [accessToken, refetch]);
 
   function toggleOrder(orderId: string) {
     setStatusError(null);

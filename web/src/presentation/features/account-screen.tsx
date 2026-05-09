@@ -10,6 +10,7 @@ import { Card } from "@presentation/components/ui/card";
 import { Input } from "@presentation/components/ui/input";
 import { LinkButton } from "@presentation/components/ui/link-button";
 import { Select } from "@presentation/components/ui/select";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { useAppDependencies } from "@presentation/context/app-dependencies-context";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
 import {
@@ -61,41 +62,6 @@ function StoreIcon({ className }: IconProps) {
       <path d="M5 9v10h14V9" />
       <path d="M9 19v-5h6v5" />
       <path d="M3 9h18" />
-    </svg>
-  );
-}
-
-function BellIcon({ className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-    </svg>
-  );
-}
-
-function ChevronLeftIcon({ className }: IconProps) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="m15 18-6-6 6-6" />
     </svg>
   );
 }
@@ -252,7 +218,10 @@ function PlusIcon({ className }: IconProps) {
   );
 }
 
-function profileFallback(phone: string | null, userId: string | null): UserProfile {
+function profileFallback(
+  phone: string | null,
+  userId: string | null,
+): UserProfile {
   return {
     id: userId ?? "B2B-PENDING",
     phone,
@@ -278,7 +247,13 @@ function formatBusinessId(id: string): string {
 }
 
 function addressSummary(address: UserAddress): string {
-  return [address.line1, address.line2, address.city, address.state, address.pincode]
+  return [
+    address.line1,
+    address.line2,
+    address.city,
+    address.state,
+    address.pincode,
+  ]
     .filter(Boolean)
     .join(", ");
 }
@@ -422,7 +397,7 @@ export function AccountScreen() {
   if (!hasCheckedSession) {
     return (
       <div className="space-y-3">
-        <div className="h-1 w-full rounded-full bg-primary" />
+        <MobilePageHeader title="Account" fallbackHref="/" />
         <div className="h-28 animate-pulse rounded-xl bg-secondary-bg" />
         <div className="h-40 animate-pulse rounded-xl bg-secondary-bg" />
       </div>
@@ -432,11 +407,11 @@ export function AccountScreen() {
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-bold text-heading">Account</h1>
+        <MobilePageHeader title="Account" fallbackHref="/" />
         <Card>
           <p className="text-sm text-secondary">
-            Sign in with your phone to manage your account, saved addresses,
-            and orders.
+            Sign in with your phone to manage your account, saved addresses, and
+            orders.
           </p>
           <LinkButton href="/login" className="mt-4" fullWidth>
             Sign in
@@ -533,29 +508,8 @@ export function AccountScreen() {
   }
 
   return (
-    <div className="relative flex flex-col gap-0 bg-catalog-surface text-catalog-text">
-      <div className="h-1 w-full rounded-full bg-catalog-green" />
-
-      <div className="sticky top-0 z-[12] -mx-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 backdrop-blur sm:mx-0">
-        <header className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-catalog-text hover:bg-black/5"
-            aria-label="Back"
-            onClick={() => router.back()}
-          >
-            <ChevronLeftIcon className="h-5 w-5" />
-          </button>
-          <span className="text-sm font-semibold text-catalog-text">Account</span>
-          <button
-            type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-catalog-text hover:bg-black/5"
-            aria-label="Notifications"
-          >
-            <BellIcon className="h-5 w-5" />
-          </button>
-        </header>
-      </div>
+    <div className="relative flex w-full min-w-0 flex-col gap-0 text-catalog-text">
+      <MobilePageHeader title="Account" fallbackHref="/" />
 
       <section className="-mx-4 border-b border-catalog-border/60 bg-card p-4 sm:mx-0 sm:mt-2 sm:rounded-xl sm:border">
         <div className="flex items-center gap-4">
@@ -564,7 +518,9 @@ export function AccountScreen() {
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-bold leading-tight text-catalog-text">
-              {loadingProfile ? "Loading business..." : effectiveProfile.businessName}
+              {loadingProfile
+                ? "Loading business..."
+                : effectiveProfile.businessName}
             </h1>
             <p className="mt-1 text-xs text-catalog-text-muted">
               ID: {formatBusinessId(effectiveProfile.id)}
@@ -589,12 +545,18 @@ export function AccountScreen() {
       <div className="flex flex-col gap-4 px-0 py-4">
         <SectionShell title="Business Profile">
           <div className="grid gap-2 p-4 sm:grid-cols-2">
-            <ReadOnlyField label="Business name" value={effectiveProfile.businessName} />
+            <ReadOnlyField
+              label="Business name"
+              value={effectiveProfile.businessName}
+            />
             <ReadOnlyField
               label="Business type"
               value={businessTypeLabel(effectiveProfile.businessType)}
             />
-            <ReadOnlyField label="Phone" value={effectiveProfile.phone ?? "Not available"} />
+            <ReadOnlyField
+              label="Phone"
+              value={effectiveProfile.phone ?? "Not available"}
+            />
             <ReadOnlyField
               label="GST number"
               value={effectiveProfile.gstNumber || "Not added"}
@@ -627,7 +589,8 @@ export function AccountScreen() {
                   Saved Addresses
                 </p>
                 <p className="mt-0.5 truncate text-[10px] text-muted">
-                  {addresses.length} delivery {addresses.length === 1 ? "location" : "locations"}
+                  {addresses.length} delivery{" "}
+                  {addresses.length === 1 ? "location" : "locations"}
                 </p>
               </div>
             </div>
@@ -712,7 +675,9 @@ export function AccountScreen() {
                     required
                   >
                     <option value="">
-                      {addressForm.stateIso ? "Select city" : "Select state first"}
+                      {addressForm.stateIso
+                        ? "Select city"
+                        : "Select state first"}
                     </option>
                     {addressCities.map((city, index) => (
                       <option
@@ -727,7 +692,9 @@ export function AccountScreen() {
                 <Input
                   label="PIN code *"
                   value={addressForm.pincode}
-                  onChange={(e) => updateAddressField("pincode", e.target.value)}
+                  onChange={(e) =>
+                    updateAddressField("pincode", e.target.value)
+                  }
                   placeholder="560001"
                   inputMode="numeric"
                   maxLength={6}
@@ -763,7 +730,11 @@ export function AccountScreen() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" className="flex-1" disabled={addressSaving}>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={addressSaving}
+                  >
                     {addressSaving ? "Saving..." : "Save address"}
                   </Button>
                 </div>

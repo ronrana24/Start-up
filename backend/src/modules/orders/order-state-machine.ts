@@ -2,9 +2,31 @@ import { BadRequestException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 
 const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
-  [OrderStatus.PLACED]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-  [OrderStatus.CONFIRMED]: [OrderStatus.PACKED, OrderStatus.CANCELLED],
-  [OrderStatus.PACKED]: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+  [OrderStatus.PLACED]: [
+    OrderStatus.RIDER_ASSIGNED,
+    OrderStatus.CONFIRMED,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.RIDER_ASSIGNED]: [
+    OrderStatus.PICKED_UP,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.PICKED_UP]: [
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERED,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.CONFIRMED]: [
+    OrderStatus.PACKED,
+    OrderStatus.RIDER_ASSIGNED,
+    OrderStatus.CANCELLED,
+  ],
+  [OrderStatus.PACKED]: [
+    OrderStatus.RIDER_ASSIGNED,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.CANCELLED,
+  ],
   [OrderStatus.OUT_FOR_DELIVERY]: [
     OrderStatus.DELIVERED,
     OrderStatus.CANCELLED,

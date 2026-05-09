@@ -2,6 +2,7 @@
 
 import type { UserAddress } from "@application/ports/user-profile-gateway";
 import { cartTotalCents } from "@domain/cart";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
 import { Input } from "@presentation/components/ui/input";
@@ -34,23 +35,6 @@ type DeliveryDateOption = {
   dayLabel: string;
   dateLabel: string;
 };
-
-function BackIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <path d="m15 18-6-6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function LocationIcon({ className }: { className?: string }) {
   return (
@@ -403,25 +387,28 @@ export function CheckoutScreen() {
 
   if (lines.length === 0) {
     return (
-      <Card>
-        <p className="text-secondary">Your cart is empty.</p>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => router.push("/cart")}
-          >
-            View cart
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => router.push("/")}
-          >
-            Continue shopping
-          </Button>
-        </div>
-      </Card>
+      <div className="flex flex-col gap-4">
+        <MobilePageHeader title="Checkout" fallbackHref="/cart" />
+        <Card>
+          <p className="text-secondary">Your cart is empty.</p>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => router.push("/cart")}
+            >
+              View cart
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => router.push("/")}
+            >
+              Continue shopping
+            </Button>
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -495,28 +482,18 @@ export function CheckoutScreen() {
 
   return (
     <div className="relative -mx-4 flex min-h-[min(85dvh,40rem)] flex-col overflow-hidden rounded-2xl border border-default bg-card shadow-sm sm:mx-0">
-      <div className="h-0.5 w-full shrink-0 bg-primary" aria-hidden />
-
-      <div className="sticky top-0 z-20 shrink-0 border-b border-default/60 bg-card/95 backdrop-blur-sm">
-        <header className="flex items-center justify-between px-4 py-3">
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-heading transition-colors hover:bg-secondary-bg"
-            aria-label="Go back"
-            onClick={onHeaderBack}
-          >
-            <BackIcon />
-          </button>
-          <h1 className="text-sm font-semibold tracking-tight text-heading">
-            {headerTitle}
-          </h1>
-          <div className="h-9 w-9 shrink-0" aria-hidden />
-        </header>
+      <MobilePageHeader
+        title={headerTitle}
+        onBack={onHeaderBack}
+        className="px-4"
+        containerClassName="mx-0 shrink-0 border-b border-default/60 bg-card/95 px-0 py-3"
+        rightAction={<span className="h-10 w-10 shrink-0" aria-hidden />}
+      >
         <CheckoutProgress
           step={step}
           mode={step === 1 ? "configure" : "review"}
         />
-      </div>
+      </MobilePageHeader>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[calc(13rem+env(safe-area-inset-bottom))] lg:pb-8">
         {step === 1 ? (

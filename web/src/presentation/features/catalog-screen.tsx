@@ -7,21 +7,26 @@ import {
   productBulkTiersSorted,
   productGalleryUrls,
 } from "@domain/product-pricing";
+import type { OrderLine } from "@domain/order";
 import type { Product } from "@domain/product";
 import { ProductImageCarousel } from "@presentation/components/product/product-image-carousel";
 import { DesktopCartPill } from "@presentation/components/shop/desktop-cart-pill";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
 import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 type SortKey = "best" | "price-asc" | "price-desc";
+type QuickReorderItem = {
+  product: Product;
+  line: OrderLine;
+};
 
 function matchesSearch(p: Product, q: string): boolean {
   if (!q.trim()) return true;
@@ -101,6 +106,18 @@ function productTitleKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function reorderQuantityLabel(product: Product, quantity: number): string {
+  const unit = productUnit(product);
+  const count = Math.max(0, Math.floor(quantity));
+  return `${count} ${count === 1 ? unit : pluralUnit(unit)}`;
+}
+
+function orderedUnitPriceCents(product: Product, line: OrderLine): number {
+  return line.unitPriceCents > 0
+    ? line.unitPriceCents
+    : pricePerCaseCents(product, line.quantity);
+}
+
 export function CatalogScreen() {
   const { data: raw, isPending, isError, refetch } = useProductsQuery();
   const userId = useAuthStore((s) => s.userId);
@@ -151,7 +168,7 @@ export function CatalogScreen() {
       raw.map((p) => [productTitleKey(p.title), p] as const),
     );
     const seen = new Set<string>();
-    const products: Product[] = [];
+    const items: QuickReorderItem[] = [];
 
     for (const line of latestOrder.lines) {
       const product =
@@ -160,11 +177,15 @@ export function CatalogScreen() {
 
       if (!product || seen.has(product.id)) continue;
       seen.add(product.id);
-      products.push(product);
+      items.push({ product, line });
     }
 
-    return products;
+    return items;
   }, [raw, latestOrder]);
+
+  const latestOrderHistoryHref = latestOrder
+    ? `/orders/history#order-${latestOrder.id}`
+    : "/orders/history";
 
   function adjustCart(p: Product, delta: number, e: React.MouseEvent) {
     e.preventDefault();
@@ -186,18 +207,32 @@ export function CatalogScreen() {
     upsertProductLine(p, next, pricePerCaseCents(p, next));
   }
 
-  function quickAdd(p: Product, e: React.MouseEvent) {
+  function quickReorderAdd(item: QuickReorderItem, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    const cur = qtyFor(p.id);
-    const moq = p.moqCases ?? 1;
-    const next = cur === 0 ? moq : Math.min(999, cur + 1);
-    upsertProductLine(p, next, pricePerCaseCents(p, next));
+    const orderedQuantity = Math.max(1, Math.floor(item.line.quantity));
+    const currentQuantity = qtyFor(item.product.id);
+    const orderedPriceCents = orderedUnitPriceCents(item.product, item.line);
+    upsertProductLine(
+      {
+        ...item.product,
+        priceCents: orderedPriceCents,
+        pricingSource: "BASE",
+        specialPricing: null,
+      },
+      Math.min(999, currentQuantity + orderedQuantity),
+      orderedPriceCents,
+    );
   }
 
   if (isPending) {
     return (
       <div className="min-h-[50vh] bg-catalog-surface px-4 pt-4">
+        <MobilePageHeader
+          title="Product Catalog"
+          fallbackHref="/"
+          containerClassName="-mx-4 mb-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 sm:mx-0"
+        />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
@@ -213,6 +248,11 @@ export function CatalogScreen() {
   if (isError || !raw) {
     return (
       <div className="bg-catalog-surface px-4 py-8 text-center">
+        <MobilePageHeader
+          title="Product Catalog"
+          fallbackHref="/"
+          containerClassName="-mx-4 mb-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 text-left sm:mx-0"
+        />
         <p className="text-catalog-text-muted">Could not load products.</p>
         <button
           type="button"
@@ -227,38 +267,12 @@ export function CatalogScreen() {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-catalog-surface text-catalog-text">
-      <div className="pointer-events-none absolute left-0 right-0 top-0 z-50 h-0.5 bg-catalog-green" />
-
-      <div className="sticky top-0 z-40 border-b border-catalog-border/50 bg-catalog-surface pt-6 shadow-sm">
-        <header className="mb-4 flex items-center justify-between px-4">
-          <Link
-            href="/"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80 shadow-sm ring-1 ring-catalog-border/80 transition-colors hover:bg-white"
-            aria-label="Go to Grove home"
-          >
-            <Image
-              src="/grove-mark.svg"
-              alt=""
-              width={24}
-              height={24}
-              className="h-6 w-6"
-              priority
-            />
-          </Link>
-          <div className="text-sm font-semibold tracking-tight text-catalog-text">
-            Product Catalog
-          </div>
-          <button
-            type="button"
-            className="relative flex h-8 w-8 items-center justify-center rounded-full text-catalog-text transition-colors hover:bg-black/5"
-            aria-label="Notifications"
-          >
-            <BellIcon className="h-5 w-5" />
-            <span className="absolute right-1 top-1 h-2 w-2 rounded-full border border-catalog-surface bg-catalog-green" />
-          </button>
-        </header>
-
-        <div className="mb-3 px-4">
+      <MobilePageHeader
+        title="Product Catalog"
+        fallbackHref="/"
+        containerClassName="border-b border-catalog-border/50 bg-catalog-surface px-4 pb-2 pt-6 shadow-sm"
+      >
+        <div className="mb-3">
           <label className="flex h-10 items-stretch overflow-hidden rounded-[10px] border border-catalog-border bg-catalog-input transition-colors focus-within:border-catalog-green focus-within:bg-white focus-within:shadow-[var(--shadow-catalog-focus)]">
             <span className="flex w-10 items-center justify-center text-catalog-text-muted">
               <SearchIcon className="h-4 w-4" />
@@ -276,7 +290,7 @@ export function CatalogScreen() {
           </label>
         </div>
 
-        <div className="px-4 pb-2">
+        <div className="pb-2">
           <div className="no-scrollbar flex items-center gap-2 overflow-x-auto pb-1">
             <button
               type="button"
@@ -323,7 +337,7 @@ export function CatalogScreen() {
             </button>
           </div>
         </div>
-      </div>
+      </MobilePageHeader>
 
       <div className="flex flex-1 flex-col overflow-y-auto pb-36">
         {quickReorder.length > 0 ? (
@@ -334,71 +348,62 @@ export function CatalogScreen() {
                 Quick Reorder
               </h2>
               <Link
-                href="#all-disposables"
+                href={latestOrderHistoryHref}
                 className="text-xs font-medium text-catalog-blue hover:underline"
               >
                 View All
               </Link>
             </div>
             <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-4">
-              {quickReorder.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex w-[140px] shrink-0 flex-col gap-2 rounded-xl border border-catalog-border/50 bg-card p-3 shadow-sm"
-                >
-                  <div className="relative flex h-20 w-full items-center justify-center overflow-hidden rounded-lg bg-catalog-input p-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={p.imageUrl}
-                      alt=""
-                      className="h-full w-full object-contain mix-blend-multiply"
-                    />
-                    {p.packSizeNote ? (
-                      <span className="absolute right-1 top-1 rounded border border-catalog-border bg-card px-1.5 py-0.5 text-[9px] font-bold text-catalog-text">
-                        {p.packSizeNote.replace(/\s+/g, "").slice(0, 8)}
+              {quickReorder.map((item) => {
+                const p = item.product;
+                const orderedPriceCents = orderedUnitPriceCents(p, item.line);
+                return (
+                  <div
+                    key={`${latestOrder?.id ?? "latest"}-${p.id}`}
+                    className="flex w-[140px] shrink-0 flex-col gap-2 rounded-xl border border-catalog-border/50 bg-card p-3 shadow-sm"
+                  >
+                    <div className="relative flex h-20 w-full items-center justify-center overflow-hidden rounded-lg bg-catalog-input p-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.imageUrl}
+                        alt=""
+                        className="h-full w-full object-contain mix-blend-multiply"
+                      />
+                      <span className="absolute right-1 top-1 max-w-[80%] truncate rounded border border-catalog-border bg-card px-1.5 py-0.5 text-[9px] font-bold text-catalog-text">
+                        {reorderQuantityLabel(p, item.line.quantity)}
                       </span>
-                    ) : null}
-                  </div>
-                  <div>
-                    <p className="mb-0.5 line-clamp-1 text-[10px] font-medium text-catalog-text-muted">
-                      {p.brand ?? "—"}
-                    </p>
-                    <p className="line-clamp-2 text-xs font-semibold leading-tight text-catalog-text">
-                      {p.title}
-                    </p>
-                  </div>
-                  <div className="mt-auto flex items-center justify-between pt-1">
-                    <div>
-                      {productHasSpecialPrice(p) &&
-                      p.specialPricing?.originalPriceCents ? (
-                        <span className="block text-[10px] font-semibold text-catalog-text-muted line-through">
-                          {formatMoney(
-                            p.specialPricing.originalPriceCents,
-                            p.currency,
-                          )}
-                        </span>
-                      ) : null}
-                      <span className="text-sm font-bold text-catalog-text">
-                        {formatMoney(p.priceCents, p.currency)}
-                      </span>
-                      {productHasSpecialPrice(p) ? (
-                        <span className="block text-[9px] font-bold text-catalog-green">
-                          Special price for you
-                        </span>
-                      ) : null}
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => quickAdd(p, e)}
-                      disabled={p.inStock === false}
-                      className="flex h-6 w-6 items-center justify-center rounded-full bg-catalog-green-muted text-catalog-green transition-colors hover:bg-catalog-green hover:text-white disabled:opacity-40"
-                      aria-label={`Add ${p.title}`}
-                    >
-                      <PlusIcon className="h-2.5 w-2.5" />
-                    </button>
+                    <div>
+                      <p className="mb-0.5 line-clamp-1 text-[10px] font-medium text-catalog-text-muted">
+                        {p.brand ?? "—"}
+                      </p>
+                      <p className="line-clamp-2 text-xs font-semibold leading-tight text-catalog-text">
+                        {p.title}
+                      </p>
+                    </div>
+                    <div className="mt-auto flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-sm font-bold text-catalog-text">
+                          {formatMoney(orderedPriceCents, p.currency)}
+                        </span>
+                        <span className="block text-[9px] font-bold text-catalog-text-muted">
+                          Last ordered price
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => quickReorderAdd(item, e)}
+                        disabled={p.inStock === false}
+                        className="flex h-6 w-6 items-center justify-center rounded-full bg-catalog-green-muted text-catalog-green transition-colors hover:bg-catalog-green hover:text-white disabled:opacity-40"
+                        aria-label={`Add ${reorderQuantityLabel(p, item.line.quantity)} of ${p.title}`}
+                      >
+                        <PlusIcon className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         ) : null}
@@ -615,22 +620,6 @@ function CatalogProductCard({
         )}
       </div>
     </article>
-  );
-}
-
-function BellIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
   );
 }
 

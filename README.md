@@ -8,6 +8,7 @@ Monorepo for the wholesale app: a **NestJS** API and **Next.js** web client.
 | ----------- | ------------------------------------------------ |
 | [`backend`](backend/README.md) | NestJS API, Prisma, PostgreSQL                   |
 | [`web`](web/README.md)         | Next.js frontend                                 |
+| [`mobile`](mobile/README.md)   | Expo rider app for iOS and Android              |
 
 ## Prerequisites
 

@@ -15,6 +15,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { DeliveryModule } from './modules/delivery/delivery.module';
 import { RidersModule } from './modules/riders/riders.module';
 import { HealthModule } from './health/health.module';
 
@@ -60,6 +61,7 @@ import { HealthModule } from './health/health.module';
     InventoryModule,
     OrdersModule,
     AdminModule,
+    DeliveryModule,
     RidersModule,
   ],
   providers: [

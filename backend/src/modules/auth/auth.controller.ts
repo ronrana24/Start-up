@@ -79,6 +79,17 @@ export class AuthController {
   }
 
   @Public()
+  @Post('rider/verify-otp')
+  async verifyRiderOtp(
+    @Body() dto: VerifyOtpDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const payload = await this.auth.verifyRiderOtp(dto.phone, dto.code);
+    this.setAccessTokenCookie(res, payload.accessToken);
+    return payload;
+  }
+
+  @Public()
   @Post('google')
   async googleLogin(
     @Body() dto: GoogleLoginDto,

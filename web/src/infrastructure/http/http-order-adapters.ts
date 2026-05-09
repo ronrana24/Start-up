@@ -105,6 +105,10 @@ function statusFromApi(status: string): OrderStatus {
   switch (status) {
     case "PLACED":
       return "pending";
+    case "RIDER_ASSIGNED":
+      return "assigned";
+    case "PICKED_UP":
+      return "picked_up";
     case "CONFIRMED":
       return "confirmed";
     case "PACKED":

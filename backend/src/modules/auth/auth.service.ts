@@ -184,6 +184,51 @@ export class AuthService {
     return { accessToken, user: this.toAuthUser(user) };
   }
 
+  async verifyRiderOtp(
+    rawPhone: string,
+    code: string,
+  ): Promise<{
+    accessToken: string;
+    user: AuthUser;
+    rider: { id: string; name: string; phone: string; status: string };
+  }> {
+    const phone = this.normalizePhone(rawPhone);
+    await this.consumeOtp(phone, code);
+
+    const rider = await this.prisma.rider.findUnique({ where: { phone } });
+    if (!rider) {
+      throw new UnauthorizedException('Phone is not registered as a rider');
+    }
+
+    let user = await this.prisma.user.findUnique({ where: { phone } });
+    if (user && user.role !== UserRole.RIDER) {
+      throw new UnauthorizedException('Phone is not registered as a rider');
+    }
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: {
+          phone,
+          name: rider.name,
+          businessName: rider.name,
+          role: UserRole.RIDER,
+          isOnboardingCompleted: true,
+        },
+      });
+    }
+
+    const accessToken = await this.signAccessToken(user);
+    return {
+      accessToken,
+      user: this.toAuthUser(user),
+      rider: {
+        id: rider.id,
+        name: rider.name,
+        phone: rider.phone,
+        status: rider.status,
+      },
+    };
+  }
+
   async loginAdmin(
     email: string,
     password: string,

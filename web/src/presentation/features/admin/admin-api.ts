@@ -14,6 +14,8 @@ export type PricingDiscountType = "PERCENT_OFF" | "AMOUNT_OFF";
 export type ProductUnit = "PIECE" | "PACK";
 export type OrderStatus =
   | "PLACED"
+  | "RIDER_ASSIGNED"
+  | "PICKED_UP"
   | "CONFIRMED"
   | "PACKED"
   | "OUT_FOR_DELIVERY"

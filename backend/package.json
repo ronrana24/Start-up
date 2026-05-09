@@ -34,6 +34,8 @@
     "@nestjs/mapped-types": "^2.1.1",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-socket.io": "^11.0.1",
+    "@nestjs/websockets": "^11.0.1",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.16.2",
     "bcrypt": "^6.0.0",
@@ -41,12 +43,14 @@
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
+    "firebase-admin": "^13.6.0",
     "google-auth-library": "^10.6.2",
     "nest-winston": "^1.10.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "socket.io": "^4.8.1",
     "winston": "^3.19.0"
   },
   "devDependencies": {

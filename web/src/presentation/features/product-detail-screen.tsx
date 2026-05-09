@@ -13,7 +13,6 @@ import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
 import { Chip } from "@presentation/components/ui/chip";
 import {
-  IconArrowLeft,
   IconBookmark,
   IconCartPlus,
   IconCheckCircle,
@@ -27,6 +26,7 @@ import {
   IconTruck,
 } from "@presentation/features/product-detail/pdp-icons";
 import { DesktopCartPill } from "@presentation/components/shop/desktop-cart-pill";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { useProductQuery } from "@presentation/hooks/use-product-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
@@ -125,28 +125,21 @@ function ProductDetailContent({
     <div className="relative flex flex-col pb-36 lg:pb-10">
       <div className="mb-0 h-1 w-full bg-primary sm:rounded-full" />
 
-      <div className="sticky top-0 z-[15] -mx-4 border-b border-default/60 bg-page/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-t-xl">
-        <header className="flex items-center justify-between gap-2">
-          <Link
-            href="/"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-heading hover:bg-secondary-bg"
-            aria-label="Back to catalog"
-          >
-            <IconArrowLeft className="h-5 w-5" />
-          </Link>
-          <span className="text-sm font-semibold text-heading">
-            Product details
-          </span>
+      <MobilePageHeader
+        title="Product details"
+        fallbackHref="/catalog"
+        containerClassName="-mx-4 border-b border-default/60 bg-page/95 px-4 py-3 sm:mx-0 sm:rounded-t-xl"
+        rightAction={
           <button
             type="button"
             onClick={() => void shareProduct()}
-            className="flex h-10 w-10 items-center justify-center rounded-full text-heading hover:bg-secondary-bg"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-catalog-text transition-colors hover:bg-black/5"
             aria-label="Share"
           >
             <IconShare className="h-5 w-5" />
           </button>
-        </header>
-      </div>
+        }
+      />
 
       <div className="flex flex-col gap-0 pt-2">
         <section className="-mx-4 overflow-hidden border-b border-default/60 bg-card sm:mx-0 sm:rounded-b-xl sm:border sm:border-t-0">
@@ -553,6 +546,7 @@ export function ProductDetailScreen() {
   if (isPending) {
     return (
       <div className="space-y-4">
+        <MobilePageHeader title="Product details" fallbackHref="/catalog" />
         <div className="h-72 animate-pulse rounded-xl bg-secondary-bg" />
         <div className="h-6 w-2/3 animate-pulse rounded bg-secondary-bg" />
         <div className="h-40 animate-pulse rounded bg-secondary-bg" />
@@ -562,21 +556,24 @@ export function ProductDetailScreen() {
 
   if (isError || !data) {
     return (
-      <Card>
-        <p className="text-secondary">Product not found.</p>
-        <div className="mt-4 flex gap-2">
-          <Link href="/" className="text-sm font-semibold text-primary">
-            Back to shop
-          </Link>
-          <button
-            type="button"
-            className="text-sm font-semibold text-secondary"
-            onClick={() => refetch()}
-          >
-            Retry
-          </button>
-        </div>
-      </Card>
+      <div className="flex flex-col gap-4">
+        <MobilePageHeader title="Product details" fallbackHref="/catalog" />
+        <Card>
+          <p className="text-secondary">Product not found.</p>
+          <div className="mt-4 flex gap-2">
+            <Link href="/" className="text-sm font-semibold text-primary">
+              Back to shop
+            </Link>
+            <button
+              type="button"
+              className="text-sm font-semibold text-secondary"
+              onClick={() => refetch()}
+            >
+              Retry
+            </button>
+          </div>
+        </Card>
+      </div>
     );
   }
 

@@ -13,6 +13,8 @@ export type DownloadOrderInvoicePdfOptions = {
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   pending: "Pending",
+  assigned: "Rider assigned",
+  picked_up: "Picked up",
   confirmed: "Confirmed",
   packed: "Packed",
   shipped: "Shipped",
