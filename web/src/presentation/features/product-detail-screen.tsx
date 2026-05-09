@@ -52,6 +52,28 @@ function initialCaseCount(data: Product): number {
   return Math.max(moqVal, Math.min(999, preset));
 }
 
+function savingsPercentFromLabel(label?: string | null): number | null {
+  const match = label?.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function tierSavingsPercent(
+  referencePriceCents: number,
+  tierPriceCents: number,
+  savingsLabel?: string | null,
+) {
+  const labelledSavings = savingsPercentFromLabel(savingsLabel);
+  if (referencePriceCents <= 0 || tierPriceCents >= referencePriceCents) {
+    return labelledSavings ?? 0;
+  }
+  const calculatedSavings = Math.round(
+    ((referencePriceCents - tierPriceCents) / referencePriceCents) * 100,
+  );
+  return Math.max(calculatedSavings, labelledSavings ?? 0);
+}
+
 function ProductDetailContent({
   data,
   catalog,
@@ -88,6 +110,17 @@ function ProductDetailContent({
   const subtotal = subtotalCentsForCases(data, selectedCases);
   const unitLabel = data.unitLabel ?? "unit";
   const hasSpecialPrice = productHasSpecialPrice(data);
+  const referenceUnitPrice = Math.max(
+    data.basePriceCents ?? 0,
+    data.priceCents,
+    ...tiers.map((tier) => tier.priceCents),
+  );
+  const tierSavingsPercents = tiers.map((tier) =>
+    tierSavingsPercent(referenceUnitPrice, tier.priceCents, tier.savingsLabel),
+  );
+  const bestSavingsPercent = Math.max(0, ...tierSavingsPercents);
+  const activeSavingsPercent =
+    activeIdx == null ? 0 : (tierSavingsPercents[activeIdx] ?? 0);
 
   function clampCases(n: number): number {
     return Math.max(moq, Math.min(999, Math.floor(n)));
@@ -123,7 +156,6 @@ function ProductDetailContent({
 
   return (
     <div className="relative flex flex-col pb-36 lg:pb-10">
-      <div className="mb-0 h-1 w-full bg-primary sm:rounded-full" />
 
       <MobilePageHeader
         title="Product details"
@@ -292,20 +324,53 @@ function ProductDetailContent({
                 </p>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-xl border border-default/60">
-                <div className="grid grid-cols-3 gap-0 bg-secondary-bg px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+              <div className="overflow-hidden rounded-xl border border-primary/15 bg-card shadow-sm">
+                <div className="border-b border-primary/10 bg-primary-light/40 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-wide text-primary">
+                        Wholesale advantage
+                      </p>
+                      <p className="mt-1 text-xs font-semibold leading-snug text-heading">
+                        Larger bundles lower your per-{unitLabel} cost and
+                        protect your margins.
+                      </p>
+                    </div>
+                    <div className="shrink-0 rounded-xl border border-primary/20 bg-card px-3 py-2 text-right shadow-sm">
+                      <p className="text-[9px] font-black uppercase tracking-wide text-muted">
+                        Best deal
+                      </p>
+                      <p className="text-sm font-black text-primary">
+                        {bestSavingsPercent > 0
+                          ? `Save ${bestSavingsPercent}%`
+                          : "Best rate"}
+                      </p>
+                    </div>
+                  </div>
+                  {activeSavingsPercent > 0 ? (
+                    <p className="mt-3 rounded-lg border border-primary/15 bg-card/80 px-3 py-2 text-[11px] font-bold leading-snug text-primary">
+                      Your current quantity is already saving{" "}
+                      {activeSavingsPercent}% per {unitLabel}.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-[1.15fr_0.9fr_0.95fr] gap-0 bg-secondary-bg px-2 py-2.5 text-[10px] font-bold uppercase tracking-wide text-muted">
                   <span>Quantity</span>
-                  <span className="text-center">Price / case</span>
-                  <span className="text-right">Savings</span>
+                  <span className="text-center">Price / {unitLabel}</span>
+                  <span className="text-right">Reward</span>
                 </div>
                 {tiers.map((t, idx) => {
                   const rowActive = activeIdx === idx;
+                  const savingsPercent = tierSavingsPercents[idx] ?? 0;
+                  const bestTier =
+                    savingsPercent > 0 && savingsPercent === bestSavingsPercent;
                   return (
                     <div
                       key={`${t.minCases}-${t.maxCases ?? "inf"}`}
                       className={cn(
-                        "grid grid-cols-3 items-center border-t border-default/40 px-3 py-3 text-xs",
-                        rowActive && "bg-primary-light/80",
+                        "grid grid-cols-[1.15fr_0.9fr_0.95fr] items-center border-t border-default/40 px-3 py-3 text-xs transition-colors",
+                        rowActive &&
+                          "bg-primary-light/80 ring-1 ring-inset ring-primary/10",
                       )}
                     >
                       <div
@@ -329,11 +394,31 @@ function ProductDetailContent({
                       </div>
                       <div
                         className={cn(
-                          "text-right font-semibold",
+                          "flex flex-col items-end gap-1 text-right font-semibold",
                           rowActive ? "text-primary" : "text-muted",
                         )}
                       >
-                        {t.savingsLabel ?? "—"}
+                        {savingsPercent > 0 ? (
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-black",
+                              rowActive
+                                ? "bg-primary text-white"
+                                : "bg-success-bg text-success",
+                            )}
+                          >
+                            Save {savingsPercent}%
+                          </span>
+                        ) : (
+                          <span>Base rate</span>
+                        )}
+                        {bestTier ? (
+                          <span className="text-[9px] font-black uppercase tracking-wide text-primary">
+                            Best value
+                          </span>
+                        ) : t.savingsLabel ? (
+                          <span className="text-[9px]">{t.savingsLabel}</span>
+                        ) : null}
                       </div>
                     </div>
                   );
