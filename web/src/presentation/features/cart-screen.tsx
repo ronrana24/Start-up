@@ -7,6 +7,7 @@ import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 /** Placeholder wholesale free-delivery threshold (matches mock scale). */
@@ -145,6 +146,7 @@ function ChevronRightIcon({ className }: { className?: string }) {
 }
 
 export function CartScreen() {
+  const router = useRouter();
   const lines = useCartStore((s) => s.lines);
   const setQuantity = useCartStore((s) => s.setQuantity);
   const removeLine = useCartStore((s) => s.removeLine);
@@ -174,11 +176,11 @@ export function CartScreen() {
 
   if (lines.length === 0) {
     return (
-      <div className="relative flex flex-col overflow-hidden rounded-2xl border border-default bg-card shadow-sm">
+      <div className="relative -mx-4 flex flex-col overflow-hidden rounded-2xl border border-default bg-card shadow-sm sm:mx-0">
         <MobilePageHeader
-          title="Review Cart"
+          title="Cart"
           fallbackHref="/catalog"
-          containerClassName="mx-0 border-b border-default/60 bg-card px-4 py-3"
+          containerClassName="mx-0 border-b border-default/60 bg-page px-4 py-3"
         />
         <div className="flex flex-col items-center px-6 py-14 text-center">
           <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-light text-primary">
@@ -214,11 +216,11 @@ export function CartScreen() {
   }
 
   return (
-    <div className="relative -mx-4 flex min-h-[min(85dvh,40rem)] flex-col overflow-hidden rounded-2xl border border-default bg-card shadow-sm sm:mx-0">
+    <div className="relative -mx-4 flex min-h-[min(85dvh,40rem)] flex-col overflow-hidden">
       <MobilePageHeader
-        title="Review Cart"
+        title="Cart"
         fallbackHref="/catalog"
-        containerClassName="mx-0 shrink-0 border-b border-default/60 bg-card/95 px-4 py-3"
+        containerClassName="mx-0 shrink-0 border-b border-default/60 bg-page px-4 py-3"
       />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-[calc(12rem+env(safe-area-inset-bottom))] lg:pb-8">
@@ -244,10 +246,21 @@ export function CartScreen() {
         <section className="flex flex-col gap-2 p-3">
           {lines.map((line) => {
             const lineTotal = line.unitPriceCents * line.quantity;
+            const productHref = `/products/${line.productId}`;
             return (
               <article
                 key={line.productId}
-                className="flex flex-col gap-3 rounded-xl border border-default/60 bg-card p-3 shadow-sm"
+                role="link"
+                tabIndex={0}
+                aria-label={`View ${line.title}`}
+                className="flex cursor-pointer flex-col gap-3 rounded-xl border border-default/60 bg-card p-3 shadow-sm transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
+                onClick={() => router.push(productHref)}
+                onKeyDown={(event) => {
+                  if (event.currentTarget !== event.target) return;
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  router.push(productHref);
+                }}
               >
                 <div className="flex gap-3">
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-default/40 bg-secondary-bg p-1">
@@ -259,16 +272,17 @@ export function CartScreen() {
                     />
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col justify-between">
-                    <div>
+                    <div className="flex items-center justify-between">
+                      <h3 className="line-clamp-2 text-xs font-bold leading-tight text-heading">
+                        {line.title}
+                      </h3>
                       <div className="mb-0.5 flex items-start justify-between gap-2">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
-                          SKU: {line.productId}
-                        </p>
                         <div className="flex shrink-0 items-center gap-1">
                           <Link
-                            href={`/products/${line.productId}`}
+                            href={productHref}
                             className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-secondary-bg hover:text-primary"
                             aria-label={`Edit ${line.title}`}
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <PenIcon />
                           </Link>
@@ -276,15 +290,15 @@ export function CartScreen() {
                             type="button"
                             className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-secondary-bg hover:text-heading"
                             aria-label={`Remove ${line.title}`}
-                            onClick={() => removeLine(line.productId)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeLine(line.productId);
+                            }}
                           >
                             <TrashIcon className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
-                      <h3 className="line-clamp-2 text-xs font-bold leading-tight text-heading">
-                        {line.title}
-                      </h3>
                     </div>
                     <div className="mt-1 flex items-center justify-between">
                       <span className="text-[10px] text-muted">Line total</span>
@@ -310,15 +324,19 @@ export function CartScreen() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg border border-default/40 bg-secondary-bg/80 p-1.5">
+                <div
+                  className="flex items-center justify-between rounded-lg border border-default/40 bg-secondary-bg/80 p-1.5"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-muted shadow-sm transition-colors hover:text-heading"
                       aria-label="Decrease quantity"
-                      onClick={() =>
-                        setQuantity(line.productId, line.quantity - 1)
-                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setQuantity(line.productId, line.quantity - 1);
+                      }}
                     >
                       <span className="text-xs font-bold">−</span>
                     </button>
@@ -329,9 +347,10 @@ export function CartScreen() {
                       type="button"
                       className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-heading shadow-sm transition-colors hover:bg-secondary-bg"
                       aria-label="Increase quantity"
-                      onClick={() =>
-                        setQuantity(line.productId, line.quantity + 1)
-                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setQuantity(line.productId, line.quantity + 1);
+                      }}
                     >
                       <span className="text-xs font-bold">+</span>
                     </button>
@@ -354,6 +373,7 @@ export function CartScreen() {
                       type="text"
                       placeholder="Add handling or substitution notes…"
                       value={notesByProduct[line.productId] ?? ""}
+                      onClick={(event) => event.stopPropagation()}
                       onChange={(e) =>
                         setNotesByProduct((prev) => ({
                           ...prev,

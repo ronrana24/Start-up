@@ -486,7 +486,7 @@ export function CheckoutScreen() {
         title={headerTitle}
         onBack={onHeaderBack}
         className="px-4"
-        containerClassName="mx-0 shrink-0 border-b border-default/60 bg-card/95 px-0 py-3"
+        containerClassName="mx-0 shrink-0 border-b border-default/60 bg-page px-0 py-3"
         rightAction={<span className="h-10 w-10 shrink-0" aria-hidden />}
       >
         <CheckoutProgress

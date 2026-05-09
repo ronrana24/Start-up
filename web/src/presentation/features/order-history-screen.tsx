@@ -6,18 +6,17 @@ import type { Product } from "@domain/product";
 import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
 import { Chip } from "@presentation/components/ui/chip";
+import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import {
   IconBox,
   IconCalendar,
   IconChartLine,
   IconChevronDown,
-  IconChevronLeft,
   IconEllipsisVertical,
   IconInvoice,
   IconPlus,
   IconReorder,
   IconSearch,
-  IconSliders,
 } from "@presentation/features/order-history/order-history-icons";
 import {
   filterOrdersByTimeRange,
@@ -40,6 +39,19 @@ import { useEffect, useMemo, useState } from "react";
 const PAGE_SIZE = 5;
 
 type StatusFilter = "all" | "delivered" | "in_progress";
+type FilterDropdown = "summaryRange" | "range" | "status" | null;
+
+const timeRangeOptions: Array<{ value: TimeRange; label: string }> = [
+  { value: "thisMonth", label: "This month" },
+  { value: "last3Months", label: "Last 3 months" },
+  { value: "all", label: "All time" },
+];
+
+const statusFilterOptions: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "delivered", label: "Delivered" },
+  { value: "in_progress", label: "Processing" },
+];
 
 function isProcessingStatus(status: OrderStatus): boolean {
   return status !== "delivered";
@@ -65,6 +77,24 @@ function orderListPeriodFromTimeRange(range: TimeRange): OrderListPeriod {
   return "this_month";
 }
 
+function OrderHistoryHeader() {
+  return (
+    <MobilePageHeader
+      title="Order History"
+      fallbackHref="/"
+      rightAction={
+        <button
+          type="button"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-catalog-text transition-colors hover:bg-black/5"
+          aria-label="More options"
+        >
+          <IconEllipsisVertical className="h-5 w-5" />
+        </button>
+      }
+    />
+  );
+}
+
 export function OrderHistoryScreen() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -88,6 +118,7 @@ export function OrderHistoryScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [openDropdown, setOpenDropdown] = useState<FilterDropdown>(null);
 
   const orders = useMemo(() => {
     const isDev = process.env.NODE_ENV === "development";
@@ -178,6 +209,7 @@ export function OrderHistoryScreen() {
   if (isQueryEnabled && isPending) {
     return (
       <div className="space-y-3">
+        <OrderHistoryHeader />
         <div className="h-10 w-full animate-pulse rounded-lg bg-secondary-bg" />
         {Array.from({ length: 4 }).map((_, i) => (
           <div
@@ -191,23 +223,26 @@ export function OrderHistoryScreen() {
 
   if (isQueryEnabled && isError) {
     return (
-      <Card>
-        <p className="text-secondary">Could not load orders.</p>
-        <button
-          type="button"
-          className="mt-3 text-sm font-semibold text-primary"
-          onClick={() => refetch()}
-        >
-          Retry
-        </button>
-      </Card>
+      <div className="flex flex-col gap-4">
+        <OrderHistoryHeader />
+        <Card>
+          <p className="text-secondary">Could not load orders.</p>
+          <button
+            type="button"
+            className="mt-3 text-sm font-semibold text-primary"
+            onClick={() => refetch()}
+          >
+            Retry
+          </button>
+        </Card>
+      </div>
     );
   }
 
   if (orders.length === 0) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="h-1 w-full rounded-full bg-primary" />
+        <OrderHistoryHeader />
         <Card>
           <p className="text-secondary">No orders yet.</p>
           <Link
@@ -225,7 +260,7 @@ export function OrderHistoryScreen() {
 
   return (
     <div className="flex flex-col gap-0">
-      <div className="h-1 w-full rounded-full bg-primary" />
+      <OrderHistoryHeader />
 
       {usingDummyOrders ? (
         <div className="mx-4 mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-heading sm:mx-0">
@@ -234,61 +269,50 @@ export function OrderHistoryScreen() {
         </div>
       ) : null}
 
-      <div className="sticky top-0 z-[12] -mx-4 border-b border-default/60 bg-page/95 px-4 py-3 backdrop-blur sm:mx-0">
-        <header className="flex items-center justify-between gap-2">
-          <Link
-            href="/"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-heading hover:bg-secondary-bg"
-            aria-label="Back to home"
-          >
-            <IconChevronLeft className="h-5 w-5" />
-          </Link>
-          <span className="text-sm font-semibold text-heading">
-            Order history
-          </span>
-          <button
-            type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-heading hover:bg-secondary-bg"
-            aria-label="More options"
-          >
-            <IconEllipsisVertical className="h-5 w-5" />
-          </button>
-        </header>
-      </div>
-
       <section className="mt-2 border-b border-default/60 bg-card p-4 sm:rounded-xl sm:border sm:border-default/60">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-sm font-bold text-heading">Spend summary</h2>
-          <button
-            type="button"
-            className="flex items-center gap-1 text-[10px] font-semibold text-primary"
-            title="Change period"
-          >
-            {timeRangeLabel(timeRange)}
-            <IconChevronDown className="text-primary" />
-          </button>
-        </div>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {(
-            [
-              ["thisMonth", "This month"],
-              ["last3Months", "Last 3 months"],
-              ["all", "All time"],
-            ] as const
-          ).map(([value, label]) => (
-            <Chip
-              key={value}
+          <div className="relative">
+            <button
               type="button"
-              active={timeRange === value}
-              className="rounded-lg px-3 py-1.5 text-[10px]"
-              onClick={() => {
-                setTimeRange(value);
-                setVisibleCount(PAGE_SIZE);
-              }}
+              aria-expanded={openDropdown === "summaryRange"}
+              className="inline-flex min-h-8 items-center gap-1 rounded-full border border-primary/15 bg-primary-light/60 px-2.5 text-[10px] font-bold text-primary transition-colors hover:bg-primary-light"
+              onClick={() =>
+                setOpenDropdown((open) =>
+                  open === "summaryRange" ? null : "summaryRange",
+                )
+              }
             >
-              {label}
-            </Chip>
-          ))}
+              {timeRangeLabel(timeRange)}
+              <IconChevronDown className="h-3 w-3" />
+            </button>
+            {openDropdown === "summaryRange" ? (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 w-36 overflow-hidden rounded-xl border border-default bg-card p-1 shadow-lg">
+                {timeRangeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={cn(
+                      "flex min-h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[11px] font-bold transition-colors",
+                      timeRange === option.value
+                        ? "bg-primary-light text-primary"
+                        : "text-heading hover:bg-secondary-bg",
+                    )}
+                    onClick={() => {
+                      setTimeRange(option.value);
+                      setVisibleCount(PAGE_SIZE);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    {option.label}
+                    {timeRange === option.value ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-primary/15 bg-primary-light/30 p-3">
@@ -372,9 +396,9 @@ export function OrderHistoryScreen() {
         </section>
       ) : null}
 
-      <section className="sticky top-16 z-10 mt-2 border-b border-default/60 bg-card p-4 shadow-sm sm:rounded-xl sm:border sm:border-default/60">
-        <div className="relative mb-3">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+      <section className="z-10 mt-2 space-y-3 border-b border-default/60 bg-card p-4 shadow-sm sm:rounded-xl sm:border sm:border-default/60">
+        <div className="relative">
+          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted">
             <IconSearch />
           </span>
           <input
@@ -385,93 +409,98 @@ export function OrderHistoryScreen() {
               setSearch(e.target.value);
               setVisibleCount(PAGE_SIZE);
             }}
-            className="w-full rounded-lg border-0 bg-input-bg py-2.5 pl-9 pr-3 text-xs text-heading outline-none ring-1 ring-transparent placeholder:text-input-placeholder focus:ring-2 focus:ring-primary/25"
+            onFocus={() => setOpenDropdown(null)}
+            className="min-h-11 w-full rounded-xl border border-default/70 bg-input-bg py-2.5 pl-10 pr-3 text-xs font-medium text-heading outline-none transition-[border-color,box-shadow,background-color] placeholder:text-input-placeholder focus:border-primary/30 focus:bg-card focus:ring-4 focus:ring-primary/10"
           />
         </div>
-        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-          <Chip
-            type="button"
-            active={timeRange === "thisMonth"}
-            className="shrink-0 rounded-full px-3 py-1.5 text-[10px]"
-            onClick={() => {
-              setTimeRange("thisMonth");
-              setVisibleCount(PAGE_SIZE);
-            }}
-          >
-            <span className="inline-flex items-center gap-1">
-              <IconCalendar /> This month
-            </span>
-          </Chip>
-          <Chip
-            type="button"
-            active={timeRange === "last3Months"}
-            className="shrink-0 rounded-full px-3 py-1.5 text-[10px]"
-            onClick={() => {
-              setTimeRange("last3Months");
-              setVisibleCount(PAGE_SIZE);
-            }}
-          >
-            <span className="inline-flex items-center gap-1">
-              <IconCalendar /> Last 3 months
-            </span>
-          </Chip>
-          <Chip
-            type="button"
-            active={timeRange === "all"}
-            className="shrink-0 rounded-full px-3 py-1.5 text-[10px]"
-            onClick={() => {
-              setTimeRange("all");
-              setVisibleCount(PAGE_SIZE);
-            }}
-          >
-            All time
-          </Chip>
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className="shrink-0 rounded-full border border-default bg-secondary-bg px-3 py-1.5 text-[10px] font-semibold text-muted opacity-60"
-          >
-            Status <IconChevronDown />
-          </button>
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className="shrink-0 rounded-full border border-default bg-secondary-bg px-3 py-1.5 text-[10px] font-semibold text-muted opacity-60"
-          >
-            Brand <IconChevronDown />
-          </button>
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-default bg-secondary-bg px-3 py-1.5 text-[10px] font-semibold text-muted opacity-60"
-          >
-            <IconSliders /> More
-          </button>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {(
-            [
-              ["all", "All"],
-              ["delivered", "Delivered"],
-              ["in_progress", "Processing"],
-            ] as const
-          ).map(([value, label]) => (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="relative">
             <Chip
-              key={value}
               type="button"
-              active={statusFilter === value}
-              className="rounded-full px-3 py-1 text-[10px]"
-              onClick={() => {
-                setStatusFilter(value);
-                setVisibleCount(PAGE_SIZE);
-              }}
+              active
+              aria-expanded={openDropdown === "range"}
+              className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[10px] font-bold shadow-sm"
+              onClick={() =>
+                setOpenDropdown((open) => (open === "range" ? null : "range"))
+              }
             >
-              {label}
+              <IconCalendar />
+              <span className="truncate">{timeRangeLabel(timeRange)}</span>
+              <IconChevronDown className="h-3 w-3" />
             </Chip>
-          ))}
+            {openDropdown === "range" ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-xl border border-default bg-card p-1 shadow-lg">
+                {timeRangeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={cn(
+                      "flex min-h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[11px] font-bold transition-colors",
+                      timeRange === option.value
+                        ? "bg-primary-light text-primary"
+                        : "text-heading hover:bg-secondary-bg",
+                    )}
+                    onClick={() => {
+                      setTimeRange(option.value);
+                      setVisibleCount(PAGE_SIZE);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    {option.label}
+                    {timeRange === option.value ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="relative">
+            <Chip
+              type="button"
+              active
+              aria-expanded={openDropdown === "status"}
+              className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full px-3 py-2 text-[10px] font-bold shadow-sm"
+              onClick={() =>
+                setOpenDropdown((open) => (open === "status" ? null : "status"))
+              }
+            >
+              <span className="truncate">
+                Status:{" "}
+                {statusFilterOptions.find(
+                  (option) => option.value === statusFilter,
+                )?.label ?? "All"}
+              </span>
+              <IconChevronDown className="h-3 w-3" />
+            </Chip>
+            {openDropdown === "status" ? (
+              <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-xl border border-default bg-card p-1 shadow-lg">
+                {statusFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={cn(
+                      "flex min-h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[11px] font-bold transition-colors",
+                      statusFilter === option.value
+                        ? "bg-primary-light text-primary"
+                        : "text-heading hover:bg-secondary-bg",
+                    )}
+                    onClick={() => {
+                      setStatusFilter(option.value);
+                      setVisibleCount(PAGE_SIZE);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    {option.label}
+                    {statusFilter === option.value ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 
@@ -487,8 +516,9 @@ export function OrderHistoryScreen() {
               onClick={() => {
                 setSearch("");
                 setStatusFilter("all");
-                setTimeRange("last3Months");
+                setTimeRange("thisMonth");
                 setVisibleCount(PAGE_SIZE);
+                setOpenDropdown(null);
               }}
             >
               Clear filters

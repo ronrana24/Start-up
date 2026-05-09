@@ -211,7 +211,7 @@ export function OrderConfirmationScreen() {
       <MobilePageHeader
         title="Order Confirmation"
         fallbackHref="/orders/history"
-        containerClassName="mx-0 border-b border-default/80 bg-card/95 px-4 py-3"
+        containerClassName="mx-0 border-b border-default/80 bg-page px-4 py-3"
         rightAction={
           <button
             type="button"

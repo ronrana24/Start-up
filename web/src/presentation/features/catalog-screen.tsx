@@ -228,12 +228,8 @@ export function CatalogScreen() {
   if (isPending) {
     return (
       <div className="min-h-[50vh] bg-catalog-surface px-4 pt-4">
-        <MobilePageHeader
-          title="Product Catalog"
-          fallbackHref="/"
-          containerClassName="-mx-4 mb-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 sm:mx-0"
-        />
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <MobilePageHeader title="Product Catalog" fallbackHref="/" />
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={String(i)}
@@ -248,11 +244,7 @@ export function CatalogScreen() {
   if (isError || !raw) {
     return (
       <div className="bg-catalog-surface px-4 py-8 text-center">
-        <MobilePageHeader
-          title="Product Catalog"
-          fallbackHref="/"
-          containerClassName="-mx-4 mb-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 text-left sm:mx-0"
-        />
+        <MobilePageHeader title="Product Catalog" fallbackHref="/" />
         <p className="text-catalog-text-muted">Could not load products.</p>
         <button
           type="button"
@@ -270,7 +262,7 @@ export function CatalogScreen() {
       <MobilePageHeader
         title="Product Catalog"
         fallbackHref="/"
-        containerClassName="border-b border-catalog-border/50 bg-catalog-surface px-4 pb-2 pt-6 shadow-sm"
+        containerClassName="border-b border-catalog-border/50 bg-catalog-surface px-4 py-3 shadow-sm"
       >
         <div className="mb-3">
           <label className="flex h-10 items-stretch overflow-hidden rounded-[10px] border border-catalog-border bg-catalog-input transition-colors focus-within:border-catalog-green focus-within:bg-white focus-within:shadow-[var(--shadow-catalog-focus)]">

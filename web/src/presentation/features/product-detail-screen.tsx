@@ -128,7 +128,7 @@ function ProductDetailContent({
       <MobilePageHeader
         title="Product details"
         fallbackHref="/catalog"
-        containerClassName="-mx-4 border-b border-default/60 bg-page/95 px-4 py-3 sm:mx-0 sm:rounded-t-xl"
+        containerClassName="-mx-4 border-b border-default/60 bg-page px-4 py-3 sm:mx-0 sm:rounded-t-xl"
         rightAction={
           <button
             type="button"

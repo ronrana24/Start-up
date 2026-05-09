@@ -274,7 +274,7 @@ function OrderSelectorPills({
   onSelect: (orderId: string) => void;
 }) {
   return (
-    <div className="sticky top-[4.25rem] z-30 -mx-4 border-b border-catalog-border/60 px-4 py-2 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-0">
+    <div className="sticky top-16 z-30 -mx-4 border-b border-catalog-border/60 bg-page px-4 py-2 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
       <div className="no-scrollbar flex snap-x gap-2 overflow-x-auto pb-1">
         {orders.map((order) => {
           const active = order.id === selectedOrderId;
@@ -525,7 +525,7 @@ export function OrdersTrackingHubScreen() {
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col gap-4">
-        <MobilePageHeader title="Track orders" fallbackHref="/" />
+        <MobilePageHeader title="Track Order" fallbackHref="/" />
         <Card>
           <p className="text-sm text-secondary">
             Sign in to see your orders and track shipments.
@@ -541,8 +541,8 @@ export function OrdersTrackingHubScreen() {
   if (isPending) {
     return (
       <div className="flex min-h-[calc(100svh-6rem)] flex-col gap-0">
-        <MobilePageHeader title="Track orders" fallbackHref="/" />
-        <div className="sticky top-[4.25rem] z-30 -mx-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-2 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+        <MobilePageHeader title="Track Order" fallbackHref="/" />
+        <div className="sticky top-16 z-30 -mx-4 border-b border-catalog-border/60 bg-page px-4 py-2 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
           <div className="flex gap-2 overflow-hidden pb-1">
             {Array.from({ length: 3 }).map((_, index) => (
               <div
@@ -574,7 +574,7 @@ export function OrdersTrackingHubScreen() {
   if (isError || !data) {
     return (
       <div className="flex flex-col gap-4">
-        <MobilePageHeader title="Track orders" fallbackHref="/" />
+        <MobilePageHeader title="Track Order" fallbackHref="/" />
         <Card>
           <p className="text-secondary">Could not load orders.</p>
           <button
@@ -591,7 +591,7 @@ export function OrdersTrackingHubScreen() {
 
   return (
     <div className="flex min-h-[calc(100svh-6rem)] flex-col gap-0 text-catalog-text">
-      <MobilePageHeader title="Track orders" fallbackHref="/" />
+      <MobilePageHeader title="Track Order" fallbackHref="/" />
 
       {sorted.length === 0 ? (
         <div className="mt-4">

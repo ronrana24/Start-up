@@ -741,7 +741,7 @@ export function AccountScreen() {
               </form>
             ) : null}
 
-            <div className="flex items-center gap-3 rounded-lg border border-default/60 bg-secondary-bg/70 p-3">
+            {/* <div className="flex items-center gap-3 rounded-lg border border-default/60 bg-secondary-bg/70 p-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-catalog-blue-light/40 text-catalog-blue">
                 <TruckIcon className="h-4 w-4" />
               </span>
@@ -753,7 +753,7 @@ export function AccountScreen() {
                   Receiving counter, instant delivery, and same-day windows
                 </p>
               </div>
-            </div>
+            </div> */}
           </div>
         </SectionShell>
 

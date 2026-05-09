@@ -9,7 +9,7 @@
   --color-secondary-border: #e5e7eb;
   --color-secondary-bg: #f9fafb;
 
-  --color-page: #f3f4f6;
+  --color-page: #f8f9fa;
   --color-card: #ffffff;
 
   --color-heading: #111827;
@@ -50,8 +50,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html,
 body {
-  background-color: var(--color-page);
+  background-color: #f8f9fa;
+}
+
+body {
   color: var(--color-heading);
   font-family: var(--font-sans), system-ui, sans-serif;
 }

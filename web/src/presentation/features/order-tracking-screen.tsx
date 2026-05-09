@@ -43,7 +43,7 @@ function isRiderLocationPayload(value: unknown): value is RiderLocationPayload {
 
 function TrackingPageHeader() {
   return (
-    <MobilePageHeader title="Track order" fallbackHref="/orders/tracking" />
+    <MobilePageHeader title="Track Order" fallbackHref="/orders/tracking" />
   );
 }
 

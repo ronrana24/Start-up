@@ -17,6 +17,12 @@ type MobilePageHeaderProps = {
   children?: ReactNode;
 };
 
+const MOBILE_PAGE_HEADER_CONTAINER_CLASS =
+  "-mx-4 border-b border-catalog-border/60 bg-page px-4 py-3 sm:mx-0";
+
+const MOBILE_PAGE_HEADER_ROW_CLASS =
+  "grid min-h-10 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-2";
+
 function BackArrowIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -81,19 +87,12 @@ export function MobilePageHeader({
   return (
     <div
       className={cn(
-        sticky && "sticky top-0 z-40 backdrop-blur",
-        sticky &&
-          !containerClassName &&
-          "-mx-4 border-b border-catalog-border/60 bg-catalog-surface/95 px-4 py-3 sm:mx-0",
+        sticky && "sticky top-0 z-40",
+        sticky && !containerClassName && MOBILE_PAGE_HEADER_CONTAINER_CLASS,
         containerClassName,
       )}
     >
-      <header
-        className={cn(
-          "grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-2",
-          className,
-        )}
-      >
+      <header className={cn(MOBILE_PAGE_HEADER_ROW_CLASS, className)}>
         <button
           type="button"
           className="flex h-10 w-10 items-center justify-center rounded-full text-catalog-text transition-colors hover:bg-black/5"
