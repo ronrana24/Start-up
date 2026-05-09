@@ -7,7 +7,13 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start:web": "cd web && npm run dev",
     "start:backend": "cd backend && npm run start:dev",
-    "start:dev": "npm run start:backend & npm run start:web"
+    "start:dev": "npm run start:backend & npm run start:web",
+    "start:web:prod": "cd web && npm run start",
+    "start:backend:prod": "cd backend && npm run start:prod",
+    "start:prod": "npm run build && (npm run start:backend:prod & npm run start:web:prod)",
+    "build:web": "cd web && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build": "npm run build:backend && npm run build:web"
   },
   "repository": {
     "type": "git",
