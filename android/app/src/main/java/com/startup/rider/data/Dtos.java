@@ -48,6 +48,62 @@ public final class Dtos {
         }
     }
 
+    public static final class GoogleLoginRequest {
+        public final String idToken;
+
+        public GoogleLoginRequest(String idToken) {
+            this.idToken = idToken;
+        }
+    }
+
+    public static final class GoogleSendOtpRequest {
+        public final String registrationToken;
+        public final String phone;
+
+        public GoogleSendOtpRequest(String registrationToken, String phone) {
+            this.registrationToken = registrationToken;
+            this.phone = phone;
+        }
+    }
+
+    public static final class GoogleCompleteRequest {
+        public final String registrationToken;
+        public final String phone;
+        public final String code;
+
+        public GoogleCompleteRequest(String registrationToken, String phone, String code) {
+            this.registrationToken = registrationToken;
+            this.phone = phone;
+            this.code = code;
+        }
+    }
+
+    public static final class CreateAddressRequest {
+        public final String line1;
+        public final String line2;
+        public final String city;
+        public final String state;
+        public final String pincode;
+        public final boolean isDefault;
+
+        public CreateAddressRequest(String line1, String line2, String city, String state, String pincode, boolean isDefault) {
+            this.line1 = line1;
+            this.line2 = line2;
+            this.city = city;
+            this.state = state;
+            this.pincode = pincode;
+            this.isDefault = isDefault;
+        }
+    }
+
+    public static final class UpdateProfileRequest {
+        public final Boolean isOnboardingCompleted;
+
+        public UpdateProfileRequest(Boolean isOnboardingCompleted) {
+            this.isOnboardingCompleted = isOnboardingCompleted;
+        }
+    }
+
     public static final class RegisterDeviceRequest {
         public final String pushToken;
         public final String platform = "android";
@@ -87,6 +143,25 @@ public final class Dtos {
         public RiderDto rider;
     }
 
+    public static final class GoogleProfile {
+        public String email;
+        public String name;
+        public String picture;
+    }
+
+    public static final class GoogleAuthResponse {
+        public String message;
+        public String accessToken;
+        public UserDto user;
+        public RiderDto rider;
+        public GoogleProfile profile;
+        public String registrationToken;
+
+        public boolean isAuthenticated() {
+            return "authenticated".equals(message);
+        }
+    }
+
     public static final class UserDto {
         public String id;
         public String phone;
@@ -103,6 +178,25 @@ public final class Dtos {
         public String phone;
         public String status;
         public JsonElement currentLocation;
+    }
+
+    public static final class AddressDto {
+        public String id;
+        public String userId;
+        public String line1;
+        public String line2;
+        public String city;
+        public String state;
+        public String pincode;
+        public boolean isDefault;
+    }
+
+    public static final class AddressDraft {
+        public String line1 = "";
+        public String line2 = "";
+        public String city = "";
+        public String state = "";
+        public String pincode = "";
     }
 
     public static final class ProductDto {

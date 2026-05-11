@@ -90,6 +90,19 @@ export class AuthController {
   }
 
   @Public()
+  @Post('rider/google')
+  async riderGoogleLogin(
+    @Body() dto: GoogleLoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const payload = await this.auth.loginRiderWithGoogle(dto.idToken);
+    if (payload.message === 'authenticated') {
+      this.setAccessTokenCookie(res, payload.accessToken);
+    }
+    return payload;
+  }
+
+  @Public()
   @Post('google')
   async googleLogin(
     @Body() dto: GoogleLoginDto,
@@ -114,12 +127,38 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ googleSendOtp: {} })
+  @Post('rider/google/send-otp')
+  riderGoogleSendOtp(@Body() dto: GoogleSendOtpDto) {
+    return this.auth.sendOtpForRiderGoogleRegistration(
+      dto.registrationToken,
+      dto.phone,
+    );
+  }
+
+  @Public()
   @Post('google/complete')
   async googleComplete(
     @Body() dto: GoogleCompleteDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     const payload = await this.auth.completeGoogleRegistration(
+      dto.registrationToken,
+      dto.phone,
+      dto.code,
+    );
+    this.setAccessTokenCookie(res, payload.accessToken);
+    return payload;
+  }
+
+  @Public()
+  @Post('rider/google/complete')
+  async riderGoogleComplete(
+    @Body() dto: GoogleCompleteDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const payload = await this.auth.completeRiderGoogleRegistration(
       dto.registrationToken,
       dto.phone,
       dto.code,

@@ -1,6 +1,12 @@
 "use client";
 
-import type { Coordinates, Order, OrderDeliveryAddress } from "@domain/order";
+import type { Order, OrderDeliveryAddress } from "@domain/order";
+import {
+  deliveryDirectionsUrl,
+  LiveRouteMap,
+  type LiveRouteMetrics,
+  riderCoordinateLabel,
+} from "@presentation/components/delivery/live-route-map";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Card } from "@presentation/components/ui/card";
 import { LinkButton } from "@presentation/components/ui/link-button";
@@ -8,11 +14,34 @@ import { useOrderTrackingQuery } from "@presentation/hooks/use-order-tracking-qu
 import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { cn } from "@presentation/lib/cn";
 import { createDeliverySocket } from "@presentation/lib/delivery-realtime";
+import { queryKeys } from "@presentation/query-keys";
 import { useAuthStore } from "@presentation/state/auth-store";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const REFRESH_SECONDS = 15;
+
+type RiderLocationPayload = {
+  orderId?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+    heading?: number | null;
+  };
+};
+
+function isRiderLocationPayload(value: unknown): value is RiderLocationPayload {
+  if (!value || typeof value !== "object") return false;
+  const location = (value as RiderLocationPayload).location;
+  return (
+    !!location &&
+    typeof location.lat === "number" &&
+    typeof location.lng === "number" &&
+    Number.isFinite(location.lat) &&
+    Number.isFinite(location.lng)
+  );
+}
 
 function shortOrderId(id: string): string {
   return `#${id.slice(0, 8).toUpperCase()}`;
@@ -136,24 +165,7 @@ function PhoneIcon({ className }: { className?: string }) {
   );
 }
 
-function distanceKm(
-  a?: Coordinates | null,
-  b?: Coordinates | null,
-): number | null {
-  if (!a || !b) return null;
-  const earthKm = 6371;
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return earthKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
-
-function etaLabel(order: Order, distance: number | null): string {
+function etaLabel(order: Order, metrics: LiveRouteMetrics | null): string {
   if (order.status === "delivered") return "Delivered";
   if (order.status === "pending" || order.status === "confirmed") {
     return "Assigning";
@@ -161,42 +173,18 @@ function etaLabel(order: Order, distance: number | null): string {
   if (order.status === "assigned" || order.status === "packed") {
     return "Pickup";
   }
-  if (distance == null) return "Updating";
-  const minutes = Math.max(8, Math.round((distance / 18) * 60));
-  return `${minutes} min`;
-}
-
-function mapQuery(order: Order): string {
-  const riderLocation = order.rider?.currentLocation;
-  if (riderLocation) return `${riderLocation.lat},${riderLocation.lng}`;
-  return addressLabel(order.deliveryAddress);
-}
-
-function directionsHref(order: Order): string {
-  const riderLocation = order.rider?.currentLocation;
-  const destination = order.deliveryAddress?.coordinates
-    ? `${order.deliveryAddress.coordinates.lat},${order.deliveryAddress.coordinates.lng}`
-    : addressLabel(order.deliveryAddress);
-  const params = new URLSearchParams({
-    api: "1",
-    destination,
-  });
-  if (riderLocation) {
-    params.set("origin", `${riderLocation.lat},${riderLocation.lng}`);
-  }
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+  return metrics?.durationText ?? "Updating";
 }
 
 function TrackingMap({
   order,
   fullBleed = false,
+  onMetrics,
 }: {
   order: Order;
   fullBleed?: boolean;
+  onMetrics?: (metrics: LiveRouteMetrics | null) => void;
 }) {
-  const query = encodeURIComponent(mapQuery(order));
-  const mapSrc = `https://maps.google.com/maps?q=${query}&z=13&output=embed`;
-
   return (
     <section
       className={cn(
@@ -206,23 +194,14 @@ function TrackingMap({
           : "rounded-[1.75rem]",
       )}
     >
-      <div
-        className={cn(
-          "relative bg-catalog-surface",
-          fullBleed ? "h-[58svh] min-h-[24rem] sm:h-72 sm:min-h-0" : "h-72",
-        )}
-      >
-        <iframe
-          src={mapSrc}
-          title="Order tracking map"
-          className="h-full w-full border-0"
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
+      <div className="relative">
+        <LiveRouteMap
+          order={order}
+          className={cn(
+            fullBleed ? "h-[58svh] min-h-[24rem] sm:h-72 sm:min-h-0" : "h-72",
+          )}
+          onMetrics={onMetrics}
         />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/10" />
-        <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-white/60 bg-white/90 px-3 py-2 text-xs font-bold text-catalog-text shadow-sm backdrop-blur">
-          Google map
-        </div>
         <div
           className={cn(
             "absolute inset-x-4 bottom-4 grid grid-cols-2 gap-2",
@@ -234,9 +213,7 @@ function TrackingMap({
               Rider
             </p>
             <p className="mt-1 truncate text-xs font-bold text-catalog-text">
-              {order.rider?.currentLocation
-                ? "Live location active"
-                : "Waiting for rider GPS"}
+              {riderCoordinateLabel(order.rider?.currentLocation)}
             </p>
           </div>
           <div className="rounded-2xl border border-white/60 bg-white/90 p-3 shadow-sm backdrop-blur">
@@ -250,7 +227,7 @@ function TrackingMap({
         </div>
       </div>
       <Link
-        href={directionsHref(order)}
+        href={deliveryDirectionsUrl(order)}
         target="_blank"
         rel="noreferrer"
         className={cn(
@@ -424,17 +401,23 @@ function TrackingDetails({
   order: Order;
   dataUpdatedAt: number;
 }) {
-  const distance = distanceKm(
-    order.rider?.currentLocation,
-    order.deliveryAddress?.coordinates,
+  const [routeMetricsState, setRouteMetricsState] = useState<{
+    orderId: string;
+    metrics: LiveRouteMetrics | null;
+  } | null>(null);
+  const routeMetrics =
+    routeMetricsState?.orderId === order.id ? routeMetricsState.metrics : null;
+  const handleRouteMetrics = useCallback(
+    (metrics: LiveRouteMetrics | null) => {
+      setRouteMetricsState({ orderId: order.id, metrics });
+    },
+    [order.id],
   );
-  const distanceLabel =
-    distance == null ? "Updating" : `${distance.toFixed(1)} km`;
 
   return (
     <div className="relative -mx-4 sm:mx-0 sm:space-y-4">
       <div className="sticky top-[7.5rem] z-0 sm:static">
-        <TrackingMap order={order} fullBleed />
+        <TrackingMap order={order} fullBleed onMetrics={handleRouteMetrics} />
       </div>
 
       <div className="relative z-10 -mt-16 space-y-4 rounded-t-[2rem] bg-catalog-surface/50 px-4 pb-8 pt-4 shadow-[0_-24px_60px_-32px_rgba(15,81,50,0.7)] backdrop-blur sm:mt-4 sm:rounded-none sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-0">
@@ -444,7 +427,7 @@ function TrackingDetails({
               ETA
             </p>
             <p className="mt-1 text-sm font-black text-catalog-text">
-              {etaLabel(order, distance)}
+              {etaLabel(order, routeMetrics)}
             </p>
           </div>
           <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
@@ -452,7 +435,7 @@ function TrackingDetails({
               Distance
             </p>
             <p className="mt-1 text-sm font-black text-catalog-text">
-              {distanceLabel}
+              {routeMetrics?.distanceText ?? "Updating"}
             </p>
           </div>
           <div className="rounded-2xl border border-catalog-border bg-card p-3 text-center shadow-sm">
@@ -476,6 +459,7 @@ export function OrdersTrackingHubScreen() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userId = useAuthStore((s) => s.userId);
   const accessToken = useAuthStore((s) => s.accessToken);
+  const queryClient = useQueryClient();
   const [chosenOrderId, setChosenOrderId] = useState<string | null>(null);
   const { data, isPending, isError, refetch } = useOrdersQuery(
     isAuthenticated ? userId : null,
@@ -512,15 +496,51 @@ export function OrdersTrackingHubScreen() {
       void refetch();
       void refetchSelected();
     };
+    const applyLocationUpdate = (payload: unknown) => {
+      if (
+        !isRiderLocationPayload(payload) ||
+        payload.orderId !== selectedOrderId
+      ) {
+        return;
+      }
+
+      queryClient.setQueryData<Order | undefined>(
+        queryKeys.order(userId, selectedOrderId),
+        (current) => {
+          if (!current?.rider) return current;
+          return {
+            ...current,
+            rider: {
+              ...current.rider,
+              currentLocation: {
+                lat: payload.location!.lat!,
+                lng: payload.location!.lng!,
+                heading:
+                  typeof payload.location!.heading === "number"
+                    ? payload.location!.heading
+                    : null,
+              },
+            },
+          };
+        },
+      );
+    };
     socket.emit("order:subscribe", { orderId: selectedOrderId });
     socket.on("order.assigned", reload);
     socket.on("order.updated", reload);
     socket.on("order.status_changed", reload);
-    socket.on("rider.location_updated", reload);
+    socket.on("rider.location_updated", applyLocationUpdate);
     return () => {
       socket.disconnect();
     };
-  }, [accessToken, refetch, refetchSelected, selectedOrderId, userId]);
+  }, [
+    accessToken,
+    queryClient,
+    refetch,
+    refetchSelected,
+    selectedOrderId,
+    userId,
+  ]);
 
   if (!isAuthenticated) {
     return (

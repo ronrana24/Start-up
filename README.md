@@ -4,11 +4,11 @@ Monorepo for the wholesale app: a **NestJS** API and **Next.js** web client.
 
 ## Repository layout
 
-| Directory   | Description                                      |
-| ----------- | ------------------------------------------------ |
-| [`backend`](backend/README.md) | NestJS API, Prisma, PostgreSQL                   |
-| [`web`](web/README.md)         | Next.js frontend                                 |
-| [`mobile`](mobile/README.md)   | Expo rider app for iOS and Android              |
+| Directory                      | Description                        |
+| ------------------------------ | ---------------------------------- |
+| [`backend`](backend/README.md) | NestJS API, Prisma, PostgreSQL     |
+| [`web`](web/README.md)         | Next.js frontend                   |
+| [`mobile`](mobile/README.md)   | Expo rider app for iOS and Android |
 
 ## Prerequisites
 
@@ -38,7 +38,9 @@ The API listens on the port in `PORT` (see `.env`; example uses `3000`, your loc
 From `web/`:
 
 1. Copy [`web/.env.example`](web/.env.example) to `.env.local` (or equivalent).
-2. Point `NEXT_PUBLIC_API_BASE_URL` at your API when using HTTP mode; align `NEXT_PUBLIC_GOOGLE_CLIENT_ID` with the backend `GOOGLE_CLIENT_ID`.
+2. For local browser auth, prefer leaving `NEXT_PUBLIC_API_BASE_URL` empty and setting `API_PROXY_TARGET=http://localhost:2424` so `/api/*` is same-origin through Next.js.
+3. If the web app calls a deployed API directly from another origin, configure the backend with `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_SAMESITE=none`, and an exact `CORS_ORIGIN` for the web URL.
+4. Align `NEXT_PUBLIC_GOOGLE_CLIENT_ID` with the backend `GOOGLE_CLIENT_ID`.
 
 ```bash
 cd web
@@ -50,5 +52,5 @@ The app is served at [http://localhost:3000](http://localhost:3000) by default.
 
 ## Documentation
 
-- [Backend README](backend/README.md) — NestJS scripts, tests, admin login, deployment notes  
-- [Web README](web/README.md) — Next.js dev server and deployment  
+- [Backend README](backend/README.md) — NestJS scripts, tests, admin login, deployment notes
+- [Web README](web/README.md) — Next.js dev server and deployment

@@ -3,6 +3,8 @@ package com.startup.rider.realtime;
 import android.util.Log;
 
 import com.startup.rider.AppConfig;
+import com.google.gson.Gson;
+import com.startup.rider.data.Dtos;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -18,6 +20,7 @@ import io.socket.engineio.client.transports.WebSocket;
 
 public final class DeliverySocketManager {
     private static final String TAG = "DeliverySocketManager";
+    private final Gson gson = new Gson();
     private Socket socket;
     private Events events;
 
@@ -91,9 +94,8 @@ public final class DeliverySocketManager {
         boundSocket.on("available-orders.changed", args -> {
             if (events != null) events.onAvailableOrdersChanged();
         });
-        boundSocket.on("order.created", args -> {
-            if (events != null) events.onAvailableOrdersChanged();
-        });
+        boundSocket.on("order.created", this::emitAvailableOrder);
+        boundSocket.on("order.available", this::emitAvailableOrder);
         boundSocket.on("order.assigned", args -> {
             if (events != null) events.onOrderChanged();
         });
@@ -117,8 +119,33 @@ public final class DeliverySocketManager {
         }
     }
 
+    private void emitAvailableOrder(Object... args) {
+        if (events == null) {
+            return;
+        }
+        events.onAvailableOrdersChanged();
+        Dtos.OrderDto order = parseOrder(args);
+        if (order != null && order.id != null && !order.id.trim().isEmpty()) {
+            events.onNewAvailableOrder(order);
+        }
+    }
+
+    private Dtos.OrderDto parseOrder(Object[] args) {
+        if (args == null || args.length == 0 || args[0] == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(args[0].toString(), Dtos.OrderDto.class);
+        } catch (RuntimeException error) {
+            Log.w(TAG, "Could not parse available order payload", error);
+            return null;
+        }
+    }
+
     public interface Events {
         void onAvailableOrdersChanged();
+
+        void onNewAvailableOrder(Dtos.OrderDto order);
 
         void onOrderChanged();
 

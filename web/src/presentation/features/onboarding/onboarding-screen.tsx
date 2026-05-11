@@ -28,7 +28,7 @@ import { OnboardingWelcomeStep } from "@presentation/features/onboarding/onboard
 
 const defaultBusiness: BusinessFormState = {
   businessName: "",
-  businessType: "RESTAURANT",
+  businessType: "FOOD_AND_BEVERAGE",
   gstNumber: "",
 };
 
@@ -135,7 +135,6 @@ export function OnboardingScreen() {
 
   return (
     <div className="relative flex min-h-full flex-1 flex-col bg-page">
-      <div className="h-1 w-full shrink-0 bg-primary" aria-hidden />
       <div className="flex flex-1 flex-col px-4 py-8">
         {showStepper ? (
           <OnboardingStepper activeIndex={step} total={3} />

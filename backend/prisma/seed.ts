@@ -15,8 +15,8 @@ async function main() {
   await prisma.product.deleteMany();
   await prisma.address.deleteMany();
   await prisma.otpChallenge.deleteMany();
-  await prisma.user.deleteMany();
   await prisma.rider.deleteMany();
+  await prisma.user.deleteMany();
 
   await prisma.user.create({
     data: {
@@ -116,22 +116,38 @@ async function main() {
     });
   }
 
-  await prisma.rider.createMany({
-    data: [
-      {
-        name: 'Ravi Kumar',
-        phone: '+919888111222',
-        status: RiderStatus.IDLE,
-        currentLocation: { lat: 12.97, lng: 77.59 },
+  for (const rider of [
+    {
+      name: 'Ravi Kumar',
+      phone: '+919888111222',
+      currentLocation: { lat: 12.97, lng: 77.59 },
+    },
+    {
+      name: 'Suresh Patil',
+      phone: '+919888333444',
+      currentLocation: { lat: 12.93, lng: 77.62 },
+    },
+  ]) {
+    const riderUser = await prisma.user.create({
+      data: {
+        phone: rider.phone,
+        name: rider.name,
+        businessName: rider.name,
+        role: UserRole.RIDER,
+        isOnboardingCompleted: true,
       },
-      {
-        name: 'Suresh Patil',
-        phone: '+919888333444',
+    });
+
+    await prisma.rider.create({
+      data: {
+        userId: riderUser.id,
+        name: rider.name,
+        phone: rider.phone,
         status: RiderStatus.IDLE,
-        currentLocation: { lat: 12.93, lng: 77.62 },
+        currentLocation: rider.currentLocation,
       },
-    ],
-  });
+    });
+  }
 }
 
 main()

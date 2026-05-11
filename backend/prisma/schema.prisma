@@ -40,8 +40,10 @@ enum RiderStatus {
 }
 
 enum BusinessType {
-  RESTAURANT
-  EVENT_PLANNER
+  FOOD_AND_BEVERAGE
+  HEALTHCARE_AND_MEDICAL
+  HOSPITALITY_AND_SERVICES
+  RETAIL_AND_ECOMMERCE
   OTHER
 }
 
@@ -75,6 +77,7 @@ model User {
   pricingRulesCreated   UserProductPricingRule[]  @relation("PricingRulesCreatedBy")
   pricingRulesUpdated   UserProductPricingRule[]  @relation("PricingRulesUpdatedBy")
   pricingAuditsChanged  UserProductPricingAudit[] @relation("PricingAuditsChangedBy")
+  rider                 Rider?
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
 }
@@ -209,6 +212,8 @@ model UserProductPricingAudit {
 
 model Rider {
   id              String      @id @default(cuid())
+  userId          String      @unique
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   phone           String      @unique
   status          RiderStatus @default(IDLE)
@@ -219,6 +224,7 @@ model Rider {
   updatedAt       DateTime    @updatedAt
 
   @@index([status])
+  @@index([userId])
 }
 
 model RiderDevice {

@@ -54,6 +54,12 @@ const deliveryOrderInclude = {
   user: { select: adminOrderUserSelect },
 } satisfies Prisma.OrderInclude;
 
+const riderAvailableStatuses: OrderStatus[] = [
+  OrderStatus.PLACED,
+  OrderStatus.CONFIRMED,
+  OrderStatus.PACKED,
+];
+
 function mapOrderStatusToLineStatus(
   status: OrderStatus,
 ): 'delivered' | 'processing' | 'other' {
@@ -333,6 +339,10 @@ export class OrdersService {
     });
     if (updated) {
       this.deliveryEvents.orderStatusChanged(updated);
+      if (!updated.riderId && riderAvailableStatuses.includes(updated.status)) {
+        this.deliveryEvents.orderAvailable(updated);
+        void this.deliveryPush.notifyAvailableRiders(updated);
+      }
       if (
         order.riderId &&
         (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED)

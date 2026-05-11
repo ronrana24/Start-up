@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RiderStatus } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
 import {
   applicationDefault,
@@ -54,7 +53,6 @@ export class DeliveryPushService {
     const devices = await this.prisma.riderDevice.findMany({
       where: {
         isActive: true,
-        rider: { status: RiderStatus.IDLE },
       },
       select: { pushToken: true, platform: true },
     });

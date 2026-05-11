@@ -11,19 +11,29 @@ const BUSINESS_OPTIONS: {
   spanFull?: boolean;
 }[] = [
   {
-    value: "RESTAURANT",
-    title: "Restaurant",
-    description: "Food service & catering",
+    value: "FOOD_AND_BEVERAGE",
+    title: "Food and Beverage",
+    description: "Restaurants, catering, and F&B supply",
   },
   {
-    value: "EVENT_PLANNER",
-    title: "Event planner",
-    description: "Venues & occasions",
+    value: "HEALTHCARE_AND_MEDICAL",
+    title: "Healthcare and Medical",
+    description: "Clinics, pharmacies, and medical supply",
+  },
+  {
+    value: "HOSPITALITY_AND_SERVICES",
+    title: "Hospitality and Services",
+    description: "Hotels, venues, events, and facilities",
+  },
+  {
+    value: "RETAIL_AND_ECOMMERCE",
+    title: "Retail and E-commerce",
+    description: "Stores, online sellers, and distributors",
   },
   {
     value: "OTHER",
     title: "Other",
-    description: "Retail, office, or other B2B",
+    description: "Any other wholesale or B2B business",
     spanFull: true,
   },
 ];

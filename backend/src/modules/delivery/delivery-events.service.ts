@@ -21,6 +21,17 @@ export class DeliveryEventsService {
     });
   }
 
+  orderAvailable(order: unknown) {
+    this.gateway.emitToRooms(
+      ['available-riders', 'admin'],
+      'order.available',
+      order,
+    );
+    this.gateway.emitToRooms(['available-riders'], 'available-orders.changed', {
+      reason: 'order_available',
+    });
+  }
+
   orderAssigned(order: DeliveryOrderPayload) {
     const rooms = this.orderRooms(order);
     this.gateway.emitToRooms(rooms, 'order.assigned', order);

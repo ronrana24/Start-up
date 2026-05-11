@@ -23,7 +23,7 @@ let mockProfile: UserProfile = {
   email: null,
   name: null,
   businessName: "Demo Restaurant Outlet",
-  businessType: "RESTAURANT",
+  businessType: "FOOD_AND_BEVERAGE",
   gstNumber: null,
   isOnboardingCompleted: false,
   role: "BUYER",

@@ -21,6 +21,14 @@ const minSecretLength = 32;
 
 const configuration = () => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
+  const authCookieSecure = parseBoolean(
+    process.env.AUTH_COOKIE_SECURE,
+    nodeEnv === 'production',
+  );
+  const authCookieSameSite = parseSameSite(
+    process.env.AUTH_COOKIE_SAMESITE,
+    authCookieSecure ? 'none' : 'lax',
+  );
 
   return {
     nodeEnv,
@@ -42,11 +50,8 @@ const configuration = () => {
           process.env.AUTH_COOKIE_MAX_AGE_SECONDS ?? `${7 * 24 * 60 * 60}`,
           10,
         ),
-        secure: parseBoolean(
-          process.env.AUTH_COOKIE_SECURE,
-          nodeEnv === 'production',
-        ),
-        sameSite: parseSameSite(process.env.AUTH_COOKIE_SAMESITE),
+        secure: authCookieSecure,
+        sameSite: authCookieSameSite,
         domain: optionalString(process.env.AUTH_COOKIE_DOMAIN),
       },
       rateLimit: {
@@ -146,6 +151,7 @@ export function validateEnvironment(
   validateBoolean(rawConfig, invalid, 'OTP_DEV_MODE');
   validateMinLength(rawConfig, invalid, 'DEFAULT_WAREHOUSE_ID', 1);
   validateCorsOrigins(rawConfig, invalid, 'CORS_ORIGIN');
+  validateAuthCookieOptions(rawConfig, invalid);
 
   if (missing.length || invalid.length) {
     const sections: string[] = ['Invalid backend environment configuration.'];
@@ -330,6 +336,37 @@ function validateCorsOrigins(
   }
 }
 
+function validateAuthCookieOptions(
+  rawConfig: Record<string, unknown>,
+  invalid: string[],
+): void {
+  validateBoolean(rawConfig, invalid, 'AUTH_COOKIE_SECURE');
+  validateInteger(rawConfig, invalid, 'AUTH_COOKIE_MAX_AGE_SECONDS', {
+    min: 0,
+    exclusiveMin: true,
+  });
+
+  const rawSameSite = readRawEnv(rawConfig, 'AUTH_COOKIE_SAMESITE');
+  if (
+    !isBlank(rawSameSite) &&
+    !['lax', 'strict', 'none'].includes(rawSameSite!.toLowerCase())
+  ) {
+    invalid.push('AUTH_COOKIE_SAMESITE must be one of: lax, strict, none');
+    return;
+  }
+
+  const nodeEnv = readRawEnv(rawConfig, 'NODE_ENV') ?? 'development';
+  const secure = parseBoolean(
+    readRawEnv(rawConfig, 'AUTH_COOKIE_SECURE'),
+    nodeEnv === 'production',
+  );
+  const sameSite = parseSameSite(rawSameSite, secure ? 'none' : 'lax');
+
+  if (sameSite === 'none' && !secure) {
+    invalid.push('AUTH_COOKIE_SAMESITE=none requires AUTH_COOKIE_SECURE=true');
+  }
+}
+
 function parseCorsOrigins(raw: string | undefined): string[] {
   if (raw?.trim()) {
     return raw
@@ -369,12 +406,19 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
-function parseSameSite(raw: string | undefined): 'lax' | 'strict' | 'none' {
+function parseSameSite(
+  raw: string | undefined,
+  fallback: 'lax' | 'strict' | 'none',
+): 'lax' | 'strict' | 'none' {
   const normalized = raw?.trim().toLowerCase();
-  if (normalized === 'strict' || normalized === 'none') {
+  if (
+    normalized === 'strict' ||
+    normalized === 'none' ||
+    normalized === 'lax'
+  ) {
     return normalized;
   }
-  return 'lax';
+  return fallback;
 }
 
 function optionalString(raw: string | undefined): string | undefined {

@@ -268,7 +268,7 @@ export class RidersService {
 
   private async riderForUser(user: User) {
     const rider = await this.prisma.rider.findUnique({
-      where: { phone: user.phone },
+      where: { userId: user.id },
     });
     if (!rider) {
       throw new NotFoundException('Rider not found for current user');

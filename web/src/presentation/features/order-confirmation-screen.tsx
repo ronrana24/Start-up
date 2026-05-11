@@ -196,11 +196,7 @@ export function OrderConfirmationScreen() {
   const orderRef = formatOrderRef(data.id);
 
   return (
-    <div className="relative flex min-h-[min(70dvh,32rem)] flex-col rounded-2xl border border-default bg-card shadow-sm">
-      <div
-        className="h-0.5 w-full shrink-0 rounded-t-2xl bg-primary"
-        aria-hidden
-      />
+    <div className="relative -mx-4 flex min-h-[calc(100svh-6rem)] flex-1 flex-col overflow-hidden bg-card shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:border-default lg:min-h-[calc(100svh-8rem)]">
       {usingDevSample ? (
         <p className="border-b border-dashed border-primary/25 bg-primary-light/40 px-3 py-2 text-center text-[11px] text-secondary">
           Development preview: sample backend order data (sign in + real order

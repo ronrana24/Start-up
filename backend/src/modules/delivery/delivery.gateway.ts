@@ -80,7 +80,7 @@ export class DeliveryGateway
 
     if (user.role === UserRole.RIDER) {
       const rider = await this.prisma.rider.findUnique({
-        where: { phone: user.phone },
+        where: { userId: user.id },
       });
       if (rider) {
         client.data.riderId = rider.id;

@@ -15,8 +15,26 @@ public interface RiderApi {
     @POST("/api/auth/rider/verify-otp")
     Call<Dtos.Envelope<Dtos.AuthPayload>> verifyRiderOtp(@Body Dtos.VerifyOtpRequest request);
 
+    @POST("/api/auth/rider/google")
+    Call<Dtos.Envelope<Dtos.GoogleAuthResponse>> riderGoogleLogin(@Body Dtos.GoogleLoginRequest request);
+
+    @POST("/api/auth/rider/google/send-otp")
+    Call<Dtos.Envelope<Dtos.OtpResponse>> riderGoogleSendOtp(@Body Dtos.GoogleSendOtpRequest request);
+
+    @POST("/api/auth/rider/google/complete")
+    Call<Dtos.Envelope<Dtos.GoogleAuthResponse>> riderGoogleComplete(@Body Dtos.GoogleCompleteRequest request);
+
     @POST("/api/auth/logout")
     Call<Dtos.Envelope<Object>> logout();
+
+    @GET("/api/users/me")
+    Call<Dtos.Envelope<Dtos.UserDto>> profile();
+
+    @PATCH("/api/users/me")
+    Call<Dtos.Envelope<Dtos.UserDto>> updateProfile(@Body Dtos.UpdateProfileRequest request);
+
+    @POST("/api/users/me/addresses")
+    Call<Dtos.Envelope<Dtos.AddressDto>> createAddress(@Body Dtos.CreateAddressRequest request);
 
     @GET("/api/riders/me")
     Call<Dtos.Envelope<Dtos.RiderDto>> me();

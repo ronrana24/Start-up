@@ -1,4 +1,10 @@
-export const BUSINESS_TYPES = ["RESTAURANT", "EVENT_PLANNER", "OTHER"] as const;
+export const BUSINESS_TYPES = [
+  "FOOD_AND_BEVERAGE",
+  "HEALTHCARE_AND_MEDICAL",
+  "HOSPITALITY_AND_SERVICES",
+  "RETAIL_AND_ECOMMERCE",
+  "OTHER",
+] as const;
 export type BusinessType = (typeof BUSINESS_TYPES)[number];
 
 export type UpdateUserProfileInput = {

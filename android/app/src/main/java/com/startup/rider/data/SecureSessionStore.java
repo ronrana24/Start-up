@@ -17,6 +17,7 @@ public final class SecureSessionStore {
     private static final String RIDER = "rider";
     private static final String USER = "user";
     private static final String DEVICE_TOKEN = "device_token";
+    private static final String ONBOARDING_ADDRESS_DRAFT = "onboarding_address_draft";
 
     private final SharedPreferences prefs;
     private final Gson gson = new Gson();
@@ -41,6 +42,12 @@ public final class SecureSessionStore {
         }
     }
 
+    public void updateUser(Dtos.UserDto user) {
+        if (user != null) {
+            prefs.edit().putString(USER, gson.toJson(user)).apply();
+        }
+    }
+
     public String accessToken() {
         return prefs.getString(ACCESS_TOKEN, null);
     }
@@ -55,6 +62,23 @@ public final class SecureSessionStore {
         } catch (RuntimeException ignored) {
             return null;
         }
+    }
+
+    public Dtos.UserDto user() {
+        String raw = prefs.getString(USER, null);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return gson.fromJson(raw, Dtos.UserDto.class);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public boolean isOnboardingCompleted() {
+        Dtos.UserDto user = user();
+        return user != null && user.isOnboardingCompleted;
     }
 
     public boolean isLoggedIn() {
@@ -73,6 +97,27 @@ public final class SecureSessionStore {
     public void clear() {
         String deviceToken = deviceToken();
         prefs.edit().clear().putString(DEVICE_TOKEN, deviceToken).apply();
+    }
+
+    public void saveOnboardingAddressDraft(Dtos.AddressDraft draft) {
+        prefs.edit().putString(ONBOARDING_ADDRESS_DRAFT, gson.toJson(draft)).apply();
+    }
+
+    public Dtos.AddressDraft onboardingAddressDraft() {
+        String raw = prefs.getString(ONBOARDING_ADDRESS_DRAFT, null);
+        if (raw == null) {
+            return new Dtos.AddressDraft();
+        }
+        try {
+            Dtos.AddressDraft draft = gson.fromJson(raw, Dtos.AddressDraft.class);
+            return draft == null ? new Dtos.AddressDraft() : draft;
+        } catch (RuntimeException ignored) {
+            return new Dtos.AddressDraft();
+        }
+    }
+
+    public void clearOnboardingAddressDraft() {
+        prefs.edit().remove(ONBOARDING_ADDRESS_DRAFT).apply();
     }
 
     private SharedPreferences createPreferences(Context context) {

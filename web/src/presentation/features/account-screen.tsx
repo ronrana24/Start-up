@@ -237,9 +237,18 @@ function profileFallback(
 }
 
 function businessTypeLabel(type: UserProfile["businessType"]): string {
-  if (type === "RESTAURANT") return "Restaurant";
-  if (type === "EVENT_PLANNER") return "Event planner";
-  return "Other business";
+  switch (type) {
+    case "FOOD_AND_BEVERAGE":
+      return "Food and Beverage";
+    case "HEALTHCARE_AND_MEDICAL":
+      return "Healthcare and Medical";
+    case "HOSPITALITY_AND_SERVICES":
+      return "Hospitality and Services";
+    case "RETAIL_AND_ECOMMERCE":
+      return "Retail and E-commerce";
+    default:
+      return "Other";
+  }
 }
 
 function formatBusinessId(id: string): string {

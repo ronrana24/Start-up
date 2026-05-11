@@ -24,6 +24,16 @@ android {
             "\"${providers.gradleProperty("API_BASE_URL").orElse("http://10.0.2.2:2424").get()}\"",
         )
         buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            "\"${providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").orElse("").get()}\"",
+        )
+        buildConfigField(
+            "String",
+            "GOOGLE_MAPS_API_KEY",
+            "\"${providers.gradleProperty("GOOGLE_MAPS_API_KEY").orElse("").get()}\"",
+        )
+        buildConfigField(
             "long",
             "LOCATION_INTERVAL_SECONDS",
             providers.gradleProperty("RIDER_LOCATION_INTERVAL_SECONDS").orElse("15").get(),
@@ -81,9 +91,12 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
     implementation(libs.firebase.messaging)
+    implementation(libs.gms.auth)
+    implementation(libs.gms.auth.api.phone)
     implementation(libs.gms.location)
     implementation(libs.gms.maps)
     implementation(libs.okhttp.logging)
+    implementation(libs.places)
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)
     implementation(libs.security.crypto)

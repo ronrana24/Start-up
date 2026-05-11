@@ -3,6 +3,7 @@ export type OrderId = string;
 export type Coordinates = {
   lat: number;
   lng: number;
+  heading?: number | null;
 };
 
 export type OrderStatus =

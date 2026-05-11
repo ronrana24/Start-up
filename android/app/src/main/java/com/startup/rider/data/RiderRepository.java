@@ -2,6 +2,9 @@ package com.startup.rider.data;
 
 import androidx.annotation.NonNull;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import java.io.IOException;
 
 import retrofit2.Call;
@@ -35,12 +38,87 @@ public final class RiderRepository {
         });
     }
 
+    public void loginWithGoogle(String idToken, Result<Dtos.GoogleAuthResponse> result) {
+        enqueue(api.riderGoogleLogin(new Dtos.GoogleLoginRequest(idToken)), new Result<Dtos.GoogleAuthResponse>() {
+            @Override
+            public void onSuccess(Dtos.GoogleAuthResponse value) {
+                saveGoogleSessionIfAuthenticated(value);
+                result.onSuccess(value);
+            }
+
+            @Override
+            public void onError(ApiFailure failure) {
+                result.onError(failure);
+            }
+        });
+    }
+
+    public void sendGoogleOtp(String registrationToken, String phone, Result<Dtos.OtpResponse> result) {
+        enqueue(api.riderGoogleSendOtp(new Dtos.GoogleSendOtpRequest(registrationToken, phone)), result);
+    }
+
+    public void completeGoogle(String registrationToken, String phone, String otp, Result<Dtos.GoogleAuthResponse> result) {
+        enqueue(api.riderGoogleComplete(new Dtos.GoogleCompleteRequest(registrationToken, phone, otp)), new Result<Dtos.GoogleAuthResponse>() {
+            @Override
+            public void onSuccess(Dtos.GoogleAuthResponse value) {
+                saveGoogleSessionIfAuthenticated(value);
+                result.onSuccess(value);
+            }
+
+            @Override
+            public void onError(ApiFailure failure) {
+                result.onError(failure);
+            }
+        });
+    }
+
     public void bootstrap(Result<Dtos.RiderDto> result) {
         enqueue(api.me(), new Result<Dtos.RiderDto>() {
             @Override
             public void onSuccess(Dtos.RiderDto value) {
                 sessionStore.updateRider(value);
                 result.onSuccess(value);
+            }
+
+            @Override
+            public void onError(ApiFailure failure) {
+                result.onError(failure);
+            }
+        });
+    }
+
+    public void refreshProfile(Result<Dtos.UserDto> result) {
+        enqueue(api.profile(), new Result<Dtos.UserDto>() {
+            @Override
+            public void onSuccess(Dtos.UserDto value) {
+                sessionStore.updateUser(value);
+                result.onSuccess(value);
+            }
+
+            @Override
+            public void onError(ApiFailure failure) {
+                result.onError(failure);
+            }
+        });
+    }
+
+    public void completeOnboarding(Dtos.CreateAddressRequest address, Result<Dtos.UserDto> result) {
+        enqueue(api.createAddress(address), new Result<Dtos.AddressDto>() {
+            @Override
+            public void onSuccess(Dtos.AddressDto value) {
+                enqueue(api.updateProfile(new Dtos.UpdateProfileRequest(true)), new Result<Dtos.UserDto>() {
+                    @Override
+                    public void onSuccess(Dtos.UserDto user) {
+                        sessionStore.updateUser(user);
+                        sessionStore.clearOnboardingAddressDraft();
+                        result.onSuccess(user);
+                    }
+
+                    @Override
+                    public void onError(ApiFailure failure) {
+                        result.onError(failure);
+                    }
+                });
             }
 
             @Override
@@ -117,6 +195,17 @@ public final class RiderRepository {
         });
     }
 
+    private void saveGoogleSessionIfAuthenticated(Dtos.GoogleAuthResponse value) {
+        if (value == null || !value.isAuthenticated()) {
+            return;
+        }
+        Dtos.AuthPayload payload = new Dtos.AuthPayload();
+        payload.accessToken = value.accessToken;
+        payload.user = value.user;
+        payload.rider = value.rider;
+        sessionStore.saveSession(payload);
+    }
+
     public interface Result<T> {
         void onSuccess(T value);
 
@@ -150,7 +239,7 @@ public final class RiderRepository {
                 if (response.errorBody() != null) {
                     String raw = response.errorBody().string();
                     if (!raw.trim().isEmpty()) {
-                        message = raw;
+                        message = parseErrorMessage(raw);
                     }
                 }
             } catch (IOException ignored) {
@@ -160,6 +249,20 @@ public final class RiderRepository {
 
         public static ApiFailure fromThrowable(Throwable throwable) {
             return new ApiFailure(throwable.getMessage() == null ? "Network request failed" : throwable.getMessage(), false, true);
+        }
+
+        private static String parseErrorMessage(String raw) {
+            try {
+                JsonObject object = JsonParser.parseString(raw).getAsJsonObject();
+                if (object.has("error") && !object.get("error").isJsonNull()) {
+                    return object.get("error").getAsString();
+                }
+                if (object.has("message") && !object.get("message").isJsonNull()) {
+                    return object.get("message").getAsString();
+                }
+            } catch (RuntimeException ignored) {
+            }
+            return raw;
         }
     }
 }

@@ -67,8 +67,11 @@ function coordinatesFromUnknown(value: unknown): Coordinates | null {
   const record = value as Record<string, unknown>;
   const rawLat = record.lat ?? record.latitude;
   const rawLng = record.lng ?? record.longitude;
+  const rawHeading = record.heading ?? record.bearing;
   const lat = typeof rawLat === "string" ? Number(rawLat) : rawLat;
   const lng = typeof rawLng === "string" ? Number(rawLng) : rawLng;
+  const heading =
+    typeof rawHeading === "string" ? Number(rawHeading) : rawHeading;
   if (
     typeof lat !== "number" ||
     typeof lng !== "number" ||
@@ -77,7 +80,9 @@ function coordinatesFromUnknown(value: unknown): Coordinates | null {
   ) {
     return null;
   }
-  return { lat, lng };
+  return typeof heading === "number" && Number.isFinite(heading)
+    ? { lat, lng, heading }
+    : { lat, lng };
 }
 
 function deliveryAddressFromUnknown(

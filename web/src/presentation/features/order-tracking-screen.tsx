@@ -91,6 +91,10 @@ export function OrderTrackingScreen() {
               currentLocation: {
                 lat: payload.location!.lat!,
                 lng: payload.location!.lng!,
+                heading:
+                  typeof payload.location!.heading === "number"
+                    ? payload.location!.heading
+                    : null,
               },
             },
           };

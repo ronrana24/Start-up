@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { User, UserRole } from '@prisma/client';
+import { Rider, User, UserRole } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from './strategies/jwt.strategy';
@@ -51,6 +51,26 @@ export type AuthUser = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+export type AuthRider = {
+  id: string;
+  name: string;
+  phone: string;
+  status: string;
+};
+
+export type RiderGoogleLoginResult =
+  | {
+      message: 'authenticated';
+      accessToken: string;
+      user: AuthUser;
+      rider: AuthRider;
+    }
+  | {
+      message: 'needs_phone';
+      registrationToken: string;
+      profile: { email: string; name?: string; picture?: string };
+    };
 
 @Injectable()
 export class AuthService {
@@ -154,6 +174,32 @@ export class AuthService {
     };
   }
 
+  private toAuthRider(rider: Rider): AuthRider {
+    return {
+      id: rider.id,
+      name: rider.name,
+      phone: rider.phone,
+      status: rider.status,
+    };
+  }
+
+  private async assertRiderUser(user: User): Promise<Rider> {
+    if (user.role !== UserRole.RIDER) {
+      throw new UnauthorizedException(
+        'Google account is not registered with other role',
+      );
+    }
+    const rider = await this.prisma.rider.findUnique({
+      where: { userId: user.id },
+    });
+    if (!rider) {
+      throw new UnauthorizedException(
+        'Rider profile not found for this account',
+      );
+    }
+    return rider;
+  }
+
   async sendOtp(rawPhone: string): Promise<{ expiresInSeconds: number }> {
     const phone = this.normalizePhone(rawPhone);
     return this.issueOtp(phone);
@@ -195,37 +241,25 @@ export class AuthService {
     const phone = this.normalizePhone(rawPhone);
     await this.consumeOtp(phone, code);
 
-    const rider = await this.prisma.rider.findUnique({ where: { phone } });
-    if (!rider) {
-      throw new UnauthorizedException('Phone is not registered as a rider');
-    }
-
-    let user = await this.prisma.user.findUnique({ where: { phone } });
+    let user = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { rider: true },
+    });
     if (user && user.role !== UserRole.RIDER) {
       throw new UnauthorizedException('Phone is not registered as a rider');
     }
     if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          phone,
-          name: rider.name,
-          businessName: rider.name,
-          role: UserRole.RIDER,
-          isOnboardingCompleted: true,
-        },
-      });
+      throw new UnauthorizedException('Phone is not registered as a rider');
+    }
+    if (!user.rider) {
+      throw new UnauthorizedException('Phone is not registered as a rider');
     }
 
     const accessToken = await this.signAccessToken(user);
     return {
       accessToken,
       user: this.toAuthUser(user),
-      rider: {
-        id: rider.id,
-        name: rider.name,
-        phone: rider.phone,
-        status: rider.status,
-      },
+      rider: this.toAuthRider(user.rider),
     };
   }
 
@@ -401,5 +435,180 @@ export class AuthService {
 
     const accessToken = await this.signAccessToken(user);
     return { accessToken, user: this.toAuthUser(user) };
+  }
+
+  async loginRiderWithGoogle(idToken: string): Promise<RiderGoogleLoginResult> {
+    const profile = await this.googleVerifier.verifyIdToken(idToken);
+
+    const existingByGoogleId = await this.prisma.user.findUnique({
+      where: { googleId: profile.googleId },
+    });
+    if (existingByGoogleId) {
+      const rider = await this.assertRiderUser(existingByGoogleId);
+      const accessToken = await this.signAccessToken(existingByGoogleId);
+      return {
+        message: 'authenticated',
+        accessToken,
+        user: this.toAuthUser(existingByGoogleId),
+        rider: this.toAuthRider(rider),
+      };
+    }
+
+    const existingByEmail = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+    if (existingByEmail) {
+      if (
+        existingByEmail.googleId &&
+        existingByEmail.googleId !== profile.googleId
+      ) {
+        throw new ConflictException(
+          'This email is already linked to a different Google account',
+        );
+      }
+      const rider = await this.assertRiderUser(existingByEmail);
+      const linked = await this.prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: {
+          googleId: profile.googleId,
+          name: existingByEmail.name ?? profile.name ?? rider.name,
+        },
+      });
+      const accessToken = await this.signAccessToken(linked);
+      return {
+        message: 'authenticated',
+        accessToken,
+        user: this.toAuthUser(linked),
+        rider: this.toAuthRider(rider),
+      };
+    }
+
+    const registrationToken = this.signRegistrationToken(profile);
+    return {
+      message: 'needs_phone',
+      registrationToken,
+      profile: {
+        email: profile.email,
+        name: profile.name,
+        picture: profile.picture,
+      },
+    };
+  }
+
+  async sendOtpForRiderGoogleRegistration(
+    registrationToken: string,
+    rawPhone: string,
+  ): Promise<{ expiresInSeconds: number }> {
+    this.verifyRegistrationToken(registrationToken);
+    const phone = this.normalizePhone(rawPhone);
+    const existingRider = await this.prisma.rider.findUnique({
+      where: { phone },
+    });
+    if (existingRider) {
+      throw new ConflictException(
+        'A rider account already exists for this mobile number',
+      );
+    }
+    return this.issueOtp(phone);
+  }
+
+  async completeRiderGoogleRegistration(
+    registrationToken: string,
+    rawPhone: string,
+    code: string,
+  ): Promise<{ accessToken: string; user: AuthUser; rider: AuthRider }> {
+    const profile = this.verifyRegistrationToken(registrationToken);
+    const phone = this.normalizePhone(rawPhone);
+
+    await this.consumeOtp(phone, code);
+
+    const conflictByGoogle = await this.prisma.user.findUnique({
+      where: { googleId: profile.googleId },
+    });
+    if (conflictByGoogle && conflictByGoogle.phone !== phone) {
+      throw new ConflictException(
+        'This Google account is already linked to a different user',
+      );
+    }
+    const conflictByEmail = await this.prisma.user.findUnique({
+      where: { email: profile.email },
+    });
+    if (conflictByEmail && conflictByEmail.phone !== phone) {
+      throw new ConflictException(
+        'This email is already linked to a different user',
+      );
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { phone },
+      include: { rider: true },
+    });
+    if (existing?.rider) {
+      throw new ConflictException(
+        'A rider account already exists for this mobile number',
+      );
+    }
+
+    const riderName = profile.name?.trim() || 'Rider';
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (existing) {
+        if (existing.role !== UserRole.RIDER) {
+          throw new UnauthorizedException('Phone is not registered as a rider');
+        }
+        if (existing.googleId && existing.googleId !== profile.googleId) {
+          throw new ConflictException(
+            'This phone is already linked to a different Google account',
+          );
+        }
+        const user = await tx.user.update({
+          where: { id: existing.id },
+          data: {
+            googleId: profile.googleId,
+            email: existing.email ?? profile.email,
+            name: existing.name ?? profile.name ?? riderName,
+            businessName: existing.businessName || riderName,
+          },
+        });
+        const rider = await tx.rider.create({
+          data: {
+            userId: user.id,
+            name: user.name ?? riderName,
+            phone: user.phone,
+          },
+        });
+        return { user, rider };
+      }
+
+      const user = await tx.user.create({
+        data: {
+          phone,
+          email: profile.email,
+          name: profile.name ?? riderName,
+          googleId: profile.googleId,
+          businessName: riderName,
+          role: UserRole.RIDER,
+          isOnboardingCompleted: false,
+          rider: {
+            create: {
+              name: riderName,
+              phone,
+            },
+          },
+        },
+        include: { rider: true },
+      });
+
+      if (!user.rider) {
+        throw new UnauthorizedException('Phone is not registered as a rider');
+      }
+      return { user, rider: user.rider };
+    });
+
+    const accessToken = await this.signAccessToken(result.user);
+    return {
+      accessToken,
+      user: this.toAuthUser(result.user),
+      rider: this.toAuthRider(result.rider),
+    };
   }
 }
