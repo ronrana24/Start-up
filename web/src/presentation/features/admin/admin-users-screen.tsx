@@ -2,6 +2,7 @@
 
 import { cn } from "@presentation/lib/cn";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatDateTime, statusLabel } from "./admin-format";
 import {
@@ -23,11 +24,16 @@ function displayName(user: AdminUser): string {
 }
 
 export function AdminUsersScreen() {
+  const router = useRouter();
   const [role, setRole] = useState<AdminRoleFilter>("BUYER");
   const { data, error, isLoading } = useAdminQuery(
     ["admin", "users", role, 1, 100],
     () => listAdminUsers(role, 1, 100),
   );
+
+  function openUser(userId: string) {
+    router.push(`/admin/users/${userId}`);
+  }
 
   return (
     <div className="space-y-5">
@@ -80,7 +86,20 @@ export function AdminUsersScreen() {
               </thead>
               <tbody className="divide-y divide-catalog-border">
                 {(data?.items ?? []).map((user) => (
-                  <tr key={user.id} className="hover:bg-catalog-surface/70">
+                  <tr
+                    key={user.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open profile for ${displayName(user)}`}
+                    className="cursor-pointer transition-colors hover:bg-catalog-surface/70 focus-visible:bg-catalog-green-muted/50 focus-visible:outline-none"
+                    onClick={() => openUser(user.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openUser(user.id);
+                      }
+                    }}
+                  >
                     <td className="px-4 py-3">
                       <p className="font-semibold text-catalog-text">
                         {displayName(user)}
@@ -105,7 +124,9 @@ export function AdminUsersScreen() {
                     </td>
                     <td className="px-4 py-3">
                       {user.gstNumber ?? (
-                        <span className="text-catalog-text-muted">Not added</span>
+                        <span className="text-catalog-text-muted">
+                          Not added
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3">{user._count?.orders ?? 0}</td>
@@ -118,6 +139,8 @@ export function AdminUsersScreen() {
                         <Link
                           href={`/admin/users/${user.id}/analytics`}
                           className="text-xs font-bold text-catalog-green hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
                           View analytics
                         </Link>
@@ -132,6 +155,8 @@ export function AdminUsersScreen() {
                         <Link
                           href={`/admin/users/${user.id}/pricing`}
                           className="text-xs font-bold text-catalog-blue hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
                           Special pricing
                         </Link>

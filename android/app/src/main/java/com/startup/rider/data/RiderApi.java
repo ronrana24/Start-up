@@ -48,6 +48,13 @@ public interface RiderApi {
     @GET("/api/riders/orders/active")
     Call<Dtos.Envelope<Dtos.OrderDto>> activeOrder();
 
+    @GET("/api/riders/orders/history")
+    Call<Dtos.Envelope<Dtos.RiderOrderHistoryResponse>> orderHistory(
+            @Query("period") String period,
+            @Query("page") int page,
+            @Query("pageSize") int pageSize
+    );
+
     @POST("/api/riders/devices")
     Call<Dtos.Envelope<Object>> registerDevice(@Body Dtos.RegisterDeviceRequest request);
 

@@ -9,7 +9,9 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
+import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.Address;
 import android.location.Geocoder;
@@ -29,16 +31,15 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.Log;
-import android.view.inputmethod.EditorInfo;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -50,6 +51,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.widget.NestedScrollView;
 
 import com.google.android.gms.auth.api.phone.SmsRetriever;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
@@ -74,6 +76,7 @@ import com.google.android.gms.location.Priority;
 import com.google.android.gms.tasks.CancellationTokenSource;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.gson.JsonObject;
 import com.startup.rider.data.Dtos;
 import com.startup.rider.data.RiderRepository;
 import com.startup.rider.data.SecureSessionStore;
@@ -86,8 +89,10 @@ import com.startup.rider.ui.Ui;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.security.MessageDigest;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -114,6 +119,13 @@ public final class MainActivity extends AppCompatActivity {
         ONBOARDING_SUCCESS
     }
 
+    private enum MainTab {
+        HOME,
+        ORDERS,
+        ALERTS,
+        ACCOUNT
+    }
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable autoRefresh = new Runnable() {
         @Override
@@ -136,12 +148,17 @@ public final class MainActivity extends AppCompatActivity {
     private ActivityResultLauncher<Intent> placesLauncher;
     private BroadcastReceiver smsReceiver;
     private BroadcastReceiver orderAvailableReceiver;
+    private FrameLayout mainRoot;
+    private NestedScrollView mainScroll;
     private LinearLayout content;
+    private LinearLayout bottomNav;
     private AlertDialog orderAlertDialog;
     private Ringtone orderAlertRingtone;
     private Dtos.RiderDto rider;
     private Dtos.OrderDto activeOrder;
     private Dtos.Page<Dtos.OrderDto> availableOrders;
+    private final List<Dtos.OrderDto> pushedOrderOffers = new ArrayList<>();
+    private final Set<String> rejectedOfferIds = new HashSet<>();
     private int availablePage = 1;
     private String socketState = "disconnected";
     private String targetOrderId;
@@ -149,6 +166,7 @@ public final class MainActivity extends AppCompatActivity {
     private boolean resumed;
     private boolean locationSnapshotInFlight;
     private AuthMode authMode = AuthMode.PICK;
+    private MainTab activeMainTab = MainTab.HOME;
     private boolean authBusy;
     private String authError;
     private String authStatus;
@@ -160,6 +178,7 @@ public final class MainActivity extends AppCompatActivity {
     private String phoneE164 = "";
     private String otpCode = "";
     private long resendAvailableAtMs;
+    private MaterialButton otpResendButton;
     private Dtos.AddressDraft addressDraft = new Dtos.AddressDraft();
     private boolean onboardingSaving;
     private boolean pendingOnboardingLocationRequest;
@@ -170,7 +189,7 @@ public final class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             if (authMode == AuthMode.GOOGLE_OTP) {
-                renderAuthOrOnboarding();
+                updateOtpResendButton();
                 if (remainingResendMs() > 0) {
                     handler.postDelayed(this, 1000L);
                 }
@@ -211,6 +230,9 @@ public final class MainActivity extends AppCompatActivity {
         setIntent(intent);
         targetOrderId = orderIdFromIntent(intent);
         if (sessionStore != null && sessionStore.isLoggedIn()) {
+            if (targetOrderId != null && !targetOrderId.trim().isEmpty()) {
+                activeMainTab = MainTab.HOME;
+            }
             refreshData(true);
         }
     }
@@ -253,6 +275,10 @@ public final class MainActivity extends AppCompatActivity {
         socketManager.disconnect();
         RiderLocationService.stop(this);
         RiderRuntimeState.set(this, false, false);
+        mainRoot = null;
+        mainScroll = null;
+        content = null;
+        bottomNav = null;
         dismissOrderAlertDialog();
         stopOrderAlertSound();
         unregisterSmsReceiver();
@@ -375,7 +401,7 @@ public final class MainActivity extends AppCompatActivity {
         google.setIconResource(com.startup.rider.R.drawable.ic_google_mark);
         google.setIconTint(null);
         google.setIconPadding(Ui.dp(this, 10));
-        google.setOnClickListener(v -> startGoogleSignIn());
+        bindAction(google, this::startGoogleSignIn);
         root.addView(google);
 
         if (authError != null) {
@@ -443,7 +469,7 @@ public final class MainActivity extends AppCompatActivity {
         Ui.gap(root, 16);
         MaterialButton send = Ui.button(this, authBusy ? "Sending..." : "Send code");
         send.setEnabled(!authBusy);
-        send.setOnClickListener(v -> sendGoogleOtp());
+        bindAction(send, this::sendGoogleOtp);
         root.addView(send);
         return root;
     }
@@ -451,12 +477,16 @@ public final class MainActivity extends AppCompatActivity {
     private View googleOtpView() {
         LinearLayout root = Ui.vertical(this);
         root.addView(labeledOtpInput());
+        if (authStatus != null) {
+            Ui.gap(root, 8);
+            root.addView(Ui.text(this, authStatus, 12, Typeface.NORMAL));
+        }
         Ui.gap(root, 16);
         LinearLayout buttons = Ui.horizontal(this);
         buttons.setGravity(Gravity.CENTER_VERTICAL);
         MaterialButton back = Ui.secondaryButton(this, "Back");
         back.setLayoutParams(weightedButtonParams());
-        back.setOnClickListener(v -> {
+        bindAction(back, () -> {
             authMode = AuthMode.GOOGLE_PHONE;
             otpCode = "";
             authError = null;
@@ -467,11 +497,17 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton verify = Ui.button(this, authBusy ? "Verifying..." : "Verify");
         verify.setLayoutParams(weightedButtonParams());
         verify.setEnabled(!authBusy);
-        verify.setOnClickListener(v -> completeGoogleOtp());
+        bindAction(verify, this::completeGoogleOtp);
         buttons.addView(back);
         Ui.gap(buttons, 8);
         buttons.addView(verify);
         root.addView(buttons);
+
+        Ui.gap(root, 12);
+        otpResendButton = Ui.secondaryButton(this, resendLabel());
+        bindAction(otpResendButton, this::sendGoogleOtp);
+        root.addView(otpResendButton);
+        updateOtpResendButton();
         return root;
     }
 
@@ -623,15 +659,17 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View authSurface(View card) {
-        ScrollView scrollView = new ScrollView(this);
+        NestedScrollView scrollView = new NestedScrollView(this);
         scrollView.setFillViewport(true);
+        scrollView.setClipToPadding(false);
         scrollView.setBackgroundColor(Ui.PAGE);
+        scrollView.setNestedScrollingEnabled(true);
         LinearLayout root = Ui.vertical(this);
         root.setGravity(Gravity.CENTER);
         root.setPadding(Ui.dp(this, 16), Ui.dp(this, 32), Ui.dp(this, 16), Ui.dp(this, 32));
-        root.setLayoutParams(new ScrollView.LayoutParams(
+        root.setLayoutParams(new NestedScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
+                ViewGroup.LayoutParams.WRAP_CONTENT
         ));
         root.addView(card);
         scrollView.addView(root);
@@ -819,6 +857,7 @@ public final class MainActivity extends AppCompatActivity {
                         : "OTP sent.";
                 startSmsRetriever();
                 handler.removeCallbacks(otpTicker);
+                handler.post(otpTicker);
                 renderAuthOrOnboarding();
             }
 
@@ -890,14 +929,16 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View onboardingSurface(View body, int activeIndex) {
-        ScrollView scroll = new ScrollView(this);
+        NestedScrollView scroll = new NestedScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         scroll.setBackgroundColor(Ui.PAGE);
+        scroll.setNestedScrollingEnabled(true);
         LinearLayout root = Ui.vertical(this);
         root.setPadding(Ui.dp(this, 16), 0, Ui.dp(this, 16), Ui.dp(this, 32));
-        root.setLayoutParams(new ScrollView.LayoutParams(
+        root.setLayoutParams(new NestedScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
+                ViewGroup.LayoutParams.WRAP_CONTENT
         ));
 
         LinearLayout topBlock = Ui.vertical(this);
@@ -922,10 +963,13 @@ public final class MainActivity extends AppCompatActivity {
         centerContent.addView(body);
         root.addView(centerContent);
 
-        root.post(() -> centerContent.setMinimumHeight(Math.max(
-                0,
-                scroll.getHeight() - root.getPaddingTop() - root.getPaddingBottom() - topBlock.getHeight()
-        )));
+        scroll.addOnLayoutChangeListener((view, left, layoutTop, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            int viewportHeight = bottom - layoutTop;
+            centerContent.setMinimumHeight(Math.max(
+                    0,
+                    viewportHeight - root.getPaddingTop() - root.getPaddingBottom() - topBlock.getHeight()
+            ));
+        });
         scroll.addView(root);
         return scroll;
     }
@@ -964,7 +1008,7 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(Ui.text(this, "A few quick details help dispatch send the right jobs, keep delivery addresses accurate, and get you to the dashboard faster.", 14, Typeface.NORMAL));
         Ui.gap(body, 30);
         MaterialButton next = Ui.button(this, "Next");
-        next.setOnClickListener(v -> {
+        bindAction(next, () -> {
             authMode = AuthMode.ONBOARDING_ADDRESS;
             authError = null;
             renderAuthOrOnboarding();
@@ -985,11 +1029,11 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout form = Ui.vertical(this);
 
         MaterialButton places = Ui.secondaryButton(this, "Search with Google Places");
-        places.setOnClickListener(v -> openPlacesAutocomplete());
+        bindAction(places, this::openPlacesAutocomplete);
         form.addView(places);
         Ui.gap(form, 10);
         MaterialButton currentLocation = Ui.secondaryButton(this, "Use current location");
-        currentLocation.setOnClickListener(v -> useCurrentLocationForAddress());
+        bindAction(currentLocation, this::useCurrentLocationForAddress);
         form.addView(currentLocation);
         Ui.gap(form, 16);
 
@@ -1017,7 +1061,7 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton back = Ui.secondaryButton(this, "Back");
         back.setLayoutParams(weightedButtonParams());
         back.setEnabled(!onboardingSaving);
-        back.setOnClickListener(v -> {
+        bindAction(back, () -> {
             authMode = AuthMode.ONBOARDING_WELCOME;
             authError = null;
             renderAuthOrOnboarding();
@@ -1025,7 +1069,7 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton save = Ui.button(this, onboardingSaving ? "Saving..." : "Save & continue");
         save.setLayoutParams(weightedButtonParams());
         save.setEnabled(!onboardingSaving);
-        save.setOnClickListener(v -> submitOnboardingAddress());
+        bindAction(save, this::submitOnboardingAddress);
         buttons.addView(back);
         Ui.gap(buttons, 8);
         buttons.addView(save);
@@ -1063,7 +1107,7 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(copy);
         Ui.gap(body, 30);
         MaterialButton start = Ui.button(this, "Go to dashboard");
-        start.setOnClickListener(v -> bootstrapSession());
+        bindAction(start, this::bootstrapSession);
         body.addView(start);
         card.addView(body);
         return card;
@@ -1394,6 +1438,22 @@ public final class MainActivity extends AppCompatActivity {
         return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
     }
 
+    private void bindAction(MaterialButton button, Runnable action) {
+        button.setClickable(true);
+        button.setFocusable(false);
+        button.setOnTouchListener(null);
+        button.setOnClickListener(v -> {
+            if (!v.isEnabled()) {
+                return;
+            }
+            handler.post(() -> {
+                if (!isFinishing() && !isDestroyed()) {
+                    action.run();
+                }
+            });
+        });
+    }
+
     private String buildIndianPhone(String national) {
         String digits = normalizeIndianNationalDigits(national);
         if (!digits.matches("^[6-9][0-9]{9}$")) {
@@ -1432,6 +1492,14 @@ public final class MainActivity extends AppCompatActivity {
             return "Resend code";
         }
         return "Resend in " + Math.max(1L, (remaining + 999L) / 1000L) + "s";
+    }
+
+    private void updateOtpResendButton() {
+        if (otpResendButton == null || authMode != AuthMode.GOOGLE_OTP) {
+            return;
+        }
+        otpResendButton.setText(resendLabel());
+        otpResendButton.setEnabled(!authBusy && remainingResendMs() <= 0);
     }
 
     private String friendlyFailure(RiderRepository.ApiFailure failure, String fallback) {
@@ -1500,11 +1568,42 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void showMain() {
-        ScrollView scrollView = new ScrollView(this);
+        mainRoot = new FrameLayout(this);
+        mainRoot.setBackgroundColor(Ui.PAGE);
+
+        mainScroll = new NestedScrollView(this);
+        mainScroll.setFillViewport(true);
+        mainScroll.setClipToPadding(false);
+        mainScroll.setNestedScrollingEnabled(true);
+        mainScroll.setPadding(0, 0, 0, Ui.dp(this, 106));
         content = Ui.vertical(this);
         content.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 28));
-        scrollView.addView(content);
-        setContentView(scrollView);
+        content.setLayoutParams(new NestedScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        mainScroll.addView(content);
+        mainRoot.addView(mainScroll, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        bottomNav = new LinearLayout(this);
+        bottomNav.setOrientation(LinearLayout.HORIZONTAL);
+        bottomNav.setGravity(Gravity.CENTER);
+        bottomNav.setPadding(Ui.dp(this, 4), Ui.dp(this, 4), Ui.dp(this, 4), Ui.dp(this, 4));
+        bottomNav.setMinimumHeight(Ui.dp(this, 64));
+        bottomNav.setBackground(glassNavBackground());
+        bottomNav.setElevation(Ui.dp(this, 18));
+        FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Ui.dp(this, 72),
+                Gravity.BOTTOM
+        );
+        navParams.setMargins(Ui.dp(this, 12), 0, Ui.dp(this, 12), Ui.dp(this, 12));
+        mainRoot.addView(bottomNav, navParams);
+
+        setContentView(mainRoot);
         connectSocket();
         render();
         handler.postDelayed(this::promptRequiredRuntimeAccess, 500L);
@@ -1515,18 +1614,348 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         content.removeAllViews();
-        content.addView(header());
-        Ui.gap(content, 10);
-        content.addView(permissionCard());
-        Ui.gap(content, 10);
-        if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
-            content.addView(activeOrderCard(activeOrder));
+        if (activeMainTab == MainTab.ORDERS) {
+            content.addView(sectionTitle("Orders", "Accept new jobs and manage your active delivery."));
             Ui.gap(content, 10);
+            if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
+                content.addView(activeOrderCard(activeOrder));
+                Ui.gap(content, 10);
+            }
+            content.addView(availableOrdersCard());
+        } else if (activeMainTab == MainTab.ALERTS) {
+            content.addView(sectionTitle("Alerts", "Keep permissions and delivery notifications ready."));
+            Ui.gap(content, 10);
+            content.addView(permissionCard());
+            Ui.gap(content, 10);
+            content.addView(alertsStatusCard());
+        } else if (activeMainTab == MainTab.ACCOUNT) {
+            content.addView(sectionTitle("Account", "Rider profile, session, and device actions."));
+            Ui.gap(content, 10);
+            content.addView(accountCard());
+            Ui.gap(content, 10);
+            content.addView(actionsCard());
+        } else {
+            content.addView(header());
+            Ui.gap(content, 10);
+            List<Dtos.OrderDto> offers = visibleOrderOffers();
+            if (!offers.isEmpty()) {
+                content.addView(orderOffersCard("New order offers", offers, true));
+                Ui.gap(content, 10);
+            }
+            if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
+                content.addView(activeOrderCard(activeOrder));
+                Ui.gap(content, 10);
+            }
+            content.addView(homeStatusCard());
+            Ui.gap(content, 10);
+            content.addView(permissionCard());
         }
-        content.addView(availableOrdersCard());
-        Ui.gap(content, 10);
-        content.addView(actionsCard());
+        renderBottomNav();
         updateRiderRuntimeState();
+    }
+
+    private List<Dtos.OrderDto> visibleOrderOffers() {
+        List<Dtos.OrderDto> offers = new ArrayList<>();
+        addVisibleOffers(offers, pushedOrderOffers);
+        if (availableOrders != null && availableOrders.items != null) {
+            addVisibleOffers(offers, availableOrders.items);
+        }
+        return offers;
+    }
+
+    private void addVisibleOffers(List<Dtos.OrderDto> target, List<Dtos.OrderDto> source) {
+        if (source == null) {
+            return;
+        }
+        Set<String> seen = new HashSet<>();
+        for (Dtos.OrderDto existing : target) {
+            if (existing != null && existing.id != null) {
+                seen.add(existing.id);
+            }
+        }
+        for (Dtos.OrderDto order : source) {
+            if (order == null || order.id == null || order.id.trim().isEmpty()) {
+                continue;
+            }
+            if (rejectedOfferIds.contains(order.id) || seen.contains(order.id) || Dtos.isTerminal(order)) {
+                continue;
+            }
+            if (activeOrder != null && order.id.equals(activeOrder.id)) {
+                continue;
+            }
+            target.add(order);
+            seen.add(order.id);
+        }
+    }
+
+    private MaterialCardView orderOffersCard(String title, List<Dtos.OrderDto> offers, boolean emphasized) {
+        MaterialCardView card = Ui.card(this);
+        if (emphasized) {
+            card.setCardBackgroundColor(Ui.PRIMARY_LIGHT);
+            card.setStrokeColor(Ui.PRIMARY);
+        }
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, title + " (" + offers.size() + ")", 18, Typeface.BOLD));
+        body.addView(Ui.text(this, "Newly placed orders appear here with live distance context from your current location.", 12, Typeface.NORMAL));
+        for (Dtos.OrderDto order : offers) {
+            Ui.gap(body, 10);
+            body.addView(orderOfferRow(order));
+        }
+        card.addView(body);
+        return card;
+    }
+
+    private View orderOfferRow(Dtos.OrderDto order) {
+        LinearLayout box = Ui.vertical(this);
+        box.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
+        box.setBackground(Ui.strokedBackground(this, Ui.CARD, Ui.DEFAULT_BORDER, 12));
+
+        LinearLayout top = Ui.horizontal(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = Ui.text(this, "Order #" + Dtos.shortOrderId(order), 15, Typeface.BOLD);
+        title.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView price = Ui.text(this, orderPriceLabel(order), 15, Typeface.BOLD);
+        price.setTextColor(Ui.PRIMARY);
+        price.setGravity(Gravity.END);
+        top.addView(title);
+        top.addView(price);
+        box.addView(top);
+
+        Ui.gap(box, 8);
+        box.addView(Ui.text(this, "Delivery Address", 11, Typeface.BOLD));
+        TextView address = Ui.text(this, Dtos.deliveryAddress(order), 13, Typeface.NORMAL);
+        address.setTextColor(Ui.HEADING);
+        box.addView(address);
+
+        Ui.gap(box, 8);
+        TextView metrics = Ui.text(this, offerDistanceEta(order), 13, Typeface.BOLD);
+        metrics.setTextColor(Ui.SECONDARY);
+        box.addView(metrics);
+
+        Ui.gap(box, 10);
+        LinearLayout buttons = Ui.horizontal(this);
+        MaterialButton reject = Ui.secondaryButton(this, "Reject");
+        reject.setLayoutParams(weightedButtonParams());
+        bindAction(reject, () -> rejectOffer(order));
+        MaterialButton accept = Ui.button(this, "Accept");
+        accept.setLayoutParams(weightedButtonParams());
+        bindAction(accept, () -> claimOrder(order));
+        buttons.addView(reject);
+        Ui.gap(buttons, 8);
+        buttons.addView(accept);
+        box.addView(buttons);
+        return box;
+    }
+
+    private String orderPriceLabel(Dtos.OrderDto order) {
+        if (order != null && order.totalAmount != null && !order.totalAmount.trim().isEmpty()) {
+            return Dtos.total(order);
+        }
+        return Dtos.payout(order);
+    }
+
+    private String offerDistanceEta(Dtos.OrderDto order) {
+        Dtos.Coordinates drop = Dtos.coordinates(order == null ? null : order.addressSnapshot);
+        Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+        Dtos.Coordinates origin = Dtos.coordinates(localRider == null ? null : localRider.currentLocation);
+        if (drop == null) {
+            String fallbackDistance = offerDistanceFallback(order);
+            return fallbackDistance == null ? "Distance pending • ETA pending" : fallbackDistance + " • ETA pending";
+        }
+        if (origin == null) {
+            return "Update location for distance & ETA";
+        }
+        double km = distanceKm(origin.lat, origin.lng, drop.lat, drop.lng);
+        int etaMinutes = Math.max(1, (int) Math.ceil((km / 25.0d) * 60.0d));
+        return String.format(Locale.US, "%.1f km • %d min ETA", km, etaMinutes);
+    }
+
+    private String offerDistanceFallback(Dtos.OrderDto order) {
+        try {
+            if (order == null || order.addressSnapshot == null || !order.addressSnapshot.isJsonObject()) {
+                return null;
+            }
+            JsonObject object = order.addressSnapshot.getAsJsonObject();
+            if (!object.has("distanceLabel") || object.get("distanceLabel").isJsonNull()) {
+                return null;
+            }
+            String label = object.get("distanceLabel").getAsString();
+            return label == null || label.trim().isEmpty() ? null : label.trim();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private double distanceKm(double fromLat, double fromLng, double toLat, double toLng) {
+        double earthRadiusKm = 6371.0d;
+        double dLat = Math.toRadians(toLat - fromLat);
+        double dLng = Math.toRadians(toLng - fromLng);
+        double a = Math.sin(dLat / 2.0d) * Math.sin(dLat / 2.0d)
+                + Math.cos(Math.toRadians(fromLat)) * Math.cos(Math.toRadians(toLat))
+                * Math.sin(dLng / 2.0d) * Math.sin(dLng / 2.0d);
+        return earthRadiusKm * 2.0d * Math.atan2(Math.sqrt(a), Math.sqrt(1.0d - a));
+    }
+
+    private View sectionTitle(String title, String subtitle) {
+        LinearLayout body = Ui.vertical(this);
+        body.setPadding(Ui.dp(this, 4), Ui.dp(this, 2), Ui.dp(this, 4), 0);
+        body.addView(Ui.text(this, title, 24, Typeface.BOLD));
+        TextView copy = Ui.text(this, subtitle, 13, Typeface.NORMAL);
+        copy.setTextColor(Ui.SECONDARY);
+        body.addView(copy);
+        return body;
+    }
+
+    private View homeStatusCard() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "Today at a glance", 17, Typeface.BOLD));
+        int availableCount = availableOrders == null ? 0 : availableOrders.total;
+        String active = activeOrder != null && !Dtos.isTerminal(activeOrder)
+                ? "Active delivery #" + Dtos.shortOrderId(activeOrder)
+                : "No active delivery";
+        body.addView(Ui.text(this, active, 13, Typeface.NORMAL));
+        body.addView(Ui.text(this, availableCount + " available orders nearby", 13, Typeface.NORMAL));
+        body.addView(Ui.text(this, "Socket " + socketState, 12, Typeface.NORMAL));
+        card.addView(body);
+        return card;
+    }
+
+    private View alertsStatusCard() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "Notification status", 17, Typeface.BOLD));
+        body.addView(Ui.text(this, hasNotificationPermission() ? "Notifications are enabled" : "Notifications need attention", 13, Typeface.NORMAL));
+        body.addView(Ui.text(this, hasFineLocationPermission() && isDeviceLocationEnabled() ? "Location is ready" : "Location needs attention", 13, Typeface.NORMAL));
+        body.addView(Ui.text(this, "Socket " + socketState, 12, Typeface.NORMAL));
+        if (lastError != null) {
+            Ui.gap(body, 8);
+            body.addView(Ui.error(this, lastError));
+        }
+        card.addView(body);
+        return card;
+    }
+
+    private View accountCard() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+        body.addView(Ui.text(this, localRider == null ? "Rider account" : localRider.name, 18, Typeface.BOLD));
+        Ui.gap(body, 8);
+        body.addView(accountRow("Phone", localRider == null || localRider.phone == null ? "Not available" : localRider.phone));
+        Ui.gap(body, 6);
+        body.addView(accountRow("Status", localRider == null || localRider.status == null ? "Unknown" : Dtos.statusLabel(localRider.status)));
+        Ui.gap(body, 6);
+        body.addView(accountRow("API", AppConfig.API_BASE_URL));
+        card.addView(body);
+        return card;
+    }
+
+    private View accountRow(String label, String value) {
+        LinearLayout row = Ui.horizontal(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView left = Ui.text(this, label, 12, Typeface.BOLD);
+        left.setTextColor(Ui.MUTED);
+        left.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f));
+        TextView right = Ui.text(this, value, 13, Typeface.NORMAL);
+        right.setGravity(Gravity.END);
+        right.setTextColor(Ui.HEADING);
+        right.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.58f));
+        row.addView(left);
+        row.addView(right);
+        return row;
+    }
+
+    private void renderBottomNav() {
+        if (bottomNav == null) {
+            return;
+        }
+        bottomNav.removeAllViews();
+        bottomNav.setBackground(glassNavBackground());
+        bottomNav.addView(bottomNavItem(MainTab.HOME, "Home", R.drawable.ic_nav_home));
+        bottomNav.addView(bottomNavItem(MainTab.ORDERS, "Orders", R.drawable.ic_nav_orders));
+        bottomNav.addView(bottomNavItem(MainTab.ALERTS, "Alerts", R.drawable.ic_nav_alerts));
+        bottomNav.addView(bottomNavItem(MainTab.ACCOUNT, "Account", R.drawable.ic_nav_account));
+    }
+
+    private View bottomNavItem(MainTab tab, String label, int iconRes) {
+        boolean active = activeMainTab == tab;
+        LinearLayout item = Ui.vertical(this);
+        item.setGravity(Gravity.CENTER);
+        item.setPadding(Ui.dp(this, 2), Ui.dp(this, 6), Ui.dp(this, 2), Ui.dp(this, 6));
+        item.setMinimumHeight(Ui.dp(this, 56));
+        item.setClickable(true);
+        item.setFocusable(true);
+        item.setBackground(navItemBackground(active));
+        item.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        item.setOnClickListener(v -> handleBottomNavTap(tab));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(active ? Ui.PRIMARY : Ui.SECONDARY);
+        icon.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 24), Ui.dp(this, 24)));
+        icon.setClickable(false);
+        icon.setFocusable(false);
+        item.addView(icon);
+
+        TextView text = Ui.text(this, label, 10, Typeface.BOLD);
+        text.setGravity(Gravity.CENTER);
+        text.setSingleLine(true);
+        text.setTextColor(active ? Ui.PRIMARY : Ui.SECONDARY);
+        text.setIncludeFontPadding(false);
+        text.setClickable(false);
+        text.setFocusable(false);
+        item.addView(text);
+        return item;
+    }
+
+    private void handleBottomNavTap(MainTab tab) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (tab == MainTab.ORDERS) {
+            openOrderHistory();
+            return;
+        }
+        if (activeMainTab == tab) {
+            return;
+        }
+        activeMainTab = tab;
+        render();
+        if (mainScroll != null) {
+            mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+        }
+    }
+
+    private void openOrderHistory() {
+        try {
+            startActivity(new Intent(MainActivity.this, OrderHistoryActivity.class));
+        } catch (RuntimeException error) {
+            activeMainTab = MainTab.ORDERS;
+            lastError = "Could not open order history: " + error.getMessage();
+            render();
+            if (mainScroll != null) {
+                mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+            }
+        }
+    }
+
+    private GradientDrawable glassNavBackground() {
+        GradientDrawable drawable = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{
+                Color.argb(235, 255, 255, 255),
+                Color.argb(205, 246, 251, 249),
+                Color.argb(175, 230, 244, 241)
+        });
+        drawable.setCornerRadius(Ui.dp(this, 28));
+        drawable.setStroke(Ui.dp(this, 1), Color.argb(150, 255, 255, 255));
+        return drawable;
+    }
+
+    private GradientDrawable navItemBackground(boolean active) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setCornerRadius(Ui.dp(this, 22));
+        drawable.setColor(active ? Color.argb(116, 255, 255, 255) : Color.TRANSPARENT);
+        return drawable;
     }
 
     private View header() {
@@ -1565,25 +1994,25 @@ public final class MainActivity extends AppCompatActivity {
         LinearLayout buttons = Ui.vertical(this);
         if (!hasFineLocationPermission()) {
             MaterialButton button = Ui.button(this, "Allow location");
-            button.setOnClickListener(v -> requestFineLocation());
+            bindAction(button, this::requestFineLocation);
             buttons.addView(button);
         } else if (!isDeviceLocationEnabled()) {
             MaterialButton button = Ui.button(this, "Turn on location services");
-            button.setOnClickListener(v -> promptEnableLocationServices());
+            bindAction(button, this::promptEnableLocationServices);
             buttons.addView(button);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasBackgroundLocationPermission()) {
             MaterialButton button = Ui.button(this, "Allow background location");
-            button.setOnClickListener(v -> requestBackgroundLocation());
+            bindAction(button, this::requestBackgroundLocation);
             buttons.addView(button);
         }
         if (!hasNotificationPermission()) {
             MaterialButton button = Ui.button(this, "Allow notifications");
-            button.setOnClickListener(v -> requestNotifications());
+            bindAction(button, this::requestNotifications);
             buttons.addView(button);
         }
         if (!isIgnoringBatteryOptimizations()) {
             MaterialButton button = Ui.button(this, "Allow battery exemption");
-            button.setOnClickListener(v -> requestBatteryExemption());
+            bindAction(button, this::requestBatteryExemption);
             buttons.addView(button);
         }
         if (buttons.getChildCount() == 0) {
@@ -1605,17 +2034,17 @@ public final class MainActivity extends AppCompatActivity {
         Ui.gap(body, 8);
 
         MaterialButton dropNav = Ui.button(this, "Navigate to drop");
-        dropNav.setOnClickListener(v -> openNavigation(Dtos.deliveryAddress(order)));
+        bindAction(dropNav, () -> openNavigation(Dtos.deliveryAddress(order)));
         body.addView(dropNav);
 
         MaterialButton preview = Ui.button(this, "Preview route");
-        preview.setOnClickListener(v -> openRoutePreview(order));
+        bindAction(preview, () -> openRoutePreview(order));
         body.addView(preview);
 
         String next = Dtos.nextRiderStatus(order);
         if (next != null) {
             MaterialButton transition = Ui.button(this, "Mark " + Dtos.statusLabel(next));
-            transition.setOnClickListener(v -> patchStatus(order, next));
+            bindAction(transition, () -> patchStatus(order, next));
             body.addView(transition);
         }
         card.addView(body);
@@ -1623,43 +2052,38 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View availableOrdersCard() {
-        MaterialCardView card = Ui.card(this);
-        LinearLayout body = Ui.vertical(this);
-        int total = availableOrders == null ? 0 : availableOrders.total;
-        body.addView(Ui.text(this, "Available orders (" + total + ")", 18, Typeface.BOLD));
-
-        List<Dtos.OrderDto> items = availableOrders == null || availableOrders.items == null
-                ? new ArrayList<>()
-                : availableOrders.items;
+        List<Dtos.OrderDto> items = visibleOrderOffers();
         if (items.isEmpty()) {
+            MaterialCardView card = Ui.card(this);
+            LinearLayout body = Ui.vertical(this);
+            body.addView(Ui.text(this, "Available orders (0)", 18, Typeface.BOLD));
             body.addView(Ui.text(this, "No unassigned orders right now. The list refreshes from sockets, FCM, and periodic fallback refresh.", 13, Typeface.NORMAL));
-        } else {
-            for (Dtos.OrderDto order : items) {
-                Ui.gap(body, 8);
-                body.addView(availableOrderRow(order));
-            }
+            card.addView(body);
+            return card;
         }
+
+        MaterialCardView card = orderOffersCard("Available orders", items, false);
+        LinearLayout body = (LinearLayout) card.getChildAt(0);
 
         Ui.gap(body, 10);
         LinearLayout pager = Ui.horizontal(this);
         pager.setGravity(Gravity.CENTER_VERTICAL);
         MaterialButton previous = Ui.button(this, "Previous");
         previous.setEnabled(availablePage > 1);
-        previous.setOnClickListener(v -> {
+        bindAction(previous, () -> {
             availablePage = Math.max(1, availablePage - 1);
             refreshAvailableOrders(true);
         });
         MaterialButton next = Ui.button(this, "Next");
         boolean hasNext = availableOrders != null && availableOrders.page * availableOrders.pageSize < availableOrders.total;
         next.setEnabled(hasNext);
-        next.setOnClickListener(v -> {
+        bindAction(next, () -> {
             availablePage += 1;
             refreshAvailableOrders(true);
         });
         pager.addView(previous);
         pager.addView(next);
         body.addView(pager);
-        card.addView(body);
         return card;
     }
 
@@ -1670,7 +2094,7 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(Ui.text(this, Dtos.deliveryAddress(order), 13, Typeface.NORMAL));
         body.addView(Ui.text(this, Dtos.payout(order) + " - " + Dtos.timeSinceCreated(order), 13, Typeface.BOLD));
         MaterialButton accept = Ui.button(this, "Accept order");
-        accept.setOnClickListener(v -> claimOrder(order));
+        bindAction(accept, () -> claimOrder(order));
         body.addView(accept);
         card.addView(body);
         return card;
@@ -1680,11 +2104,11 @@ public final class MainActivity extends AppCompatActivity {
         MaterialCardView card = Ui.card(this);
         LinearLayout body = Ui.vertical(this);
         MaterialButton refresh = Ui.button(this, "Refresh");
-        refresh.setOnClickListener(v -> refreshData(true));
+        bindAction(refresh, () -> refreshData(true));
         MaterialButton updateLocation = Ui.button(this, "Update my location");
-        updateLocation.setOnClickListener(v -> publishCurrentLocationSnapshot());
+        bindAction(updateLocation, this::publishCurrentLocationSnapshot);
         MaterialButton logout = Ui.button(this, "Logout");
-        logout.setOnClickListener(v -> repository.logout(new UiResult<Object>() {
+        bindAction(logout, () -> repository.logout(new UiResult<Object>() {
             @Override
             public void success(Object value) {
                 showLogin();
@@ -1768,11 +2192,8 @@ public final class MainActivity extends AppCompatActivity {
     private void claimOrder(String orderId, Dtos.OrderDto order) {
         dismissOrderAlertDialog();
         stopOrderAlertSound();
-        if (availableOrders != null && availableOrders.items != null && order != null) {
-            availableOrders.items.remove(order);
-            availableOrders.total = Math.max(0, availableOrders.total - 1);
-            render();
-        }
+        removeOfferById(orderId);
+        render();
         repository.claimOrder(orderId, new UiResult<Dtos.OrderDto>() {
             @Override
             public void success(Dtos.OrderDto value) {
@@ -1789,6 +2210,38 @@ public final class MainActivity extends AppCompatActivity {
                 refreshData(true);
             }
         });
+    }
+
+    private void rejectOffer(Dtos.OrderDto order) {
+        if (order == null || order.id == null || order.id.trim().isEmpty()) {
+            return;
+        }
+        rejectedOfferIds.add(order.id);
+        removeOfferById(order.id);
+        stopOrderAlertSound();
+        Toast.makeText(this, "Order rejected", Toast.LENGTH_SHORT).show();
+        render();
+    }
+
+    private void removeOfferById(String orderId) {
+        if (orderId == null || orderId.trim().isEmpty()) {
+            return;
+        }
+        for (int i = pushedOrderOffers.size() - 1; i >= 0; i--) {
+            Dtos.OrderDto item = pushedOrderOffers.get(i);
+            if (item != null && orderId.equals(item.id)) {
+                pushedOrderOffers.remove(i);
+            }
+        }
+        if (availableOrders != null && availableOrders.items != null) {
+            for (int i = availableOrders.items.size() - 1; i >= 0; i--) {
+                Dtos.OrderDto item = availableOrders.items.get(i);
+                if (item != null && orderId.equals(item.id)) {
+                    availableOrders.items.remove(i);
+                    availableOrders.total = Math.max(0, availableOrders.total - 1);
+                }
+            }
+        }
     }
 
     private void patchStatus(Dtos.OrderDto order, String nextStatus) {
@@ -1817,12 +2270,7 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         if (isRiderIdleForOrderAlert()) {
-            showAcceptOrderDialog(
-                    order.id,
-                    Dtos.deliveryAddress(order),
-                    Dtos.payout(order),
-                    Dtos.timeSinceCreated(order)
-            );
+            showOfferCardsForNewOrder(order);
         } else {
             OrderAlertNotifier.show(this, order);
         }
@@ -1840,12 +2288,46 @@ public final class MainActivity extends AppCompatActivity {
             OrderAlertNotifier.show(this, broadcastData(intent));
             return;
         }
-        showAcceptOrderDialog(
-                orderId,
-                OrderAlertNotifier.deliveryAddress(intent),
-                OrderAlertNotifier.payout(intent),
-                OrderAlertNotifier.distance(intent)
-        );
+        showOfferCardsForNewOrder(orderFromBroadcast(intent));
+        refreshAvailableOrders(false);
+    }
+
+    private void showOfferCardsForNewOrder(Dtos.OrderDto order) {
+        if (order == null || order.id == null || order.id.trim().isEmpty()) {
+            return;
+        }
+        rejectedOfferIds.remove(order.id);
+        addPushedOrderOffer(order);
+        activeMainTab = MainTab.HOME;
+        playOrderAlertSound();
+        vibrateOrderAlert();
+        render();
+        if (mainScroll != null) {
+            mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+        }
+    }
+
+    private void addPushedOrderOffer(Dtos.OrderDto order) {
+        for (int i = pushedOrderOffers.size() - 1; i >= 0; i--) {
+            Dtos.OrderDto item = pushedOrderOffers.get(i);
+            if (item != null && order.id.equals(item.id)) {
+                pushedOrderOffers.remove(i);
+            }
+        }
+        pushedOrderOffers.add(0, order);
+    }
+
+    private Dtos.OrderDto orderFromBroadcast(Intent intent) {
+        Dtos.OrderDto order = new Dtos.OrderDto();
+        order.id = intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_ID);
+        order.deliveryFee = OrderAlertNotifier.payout(intent);
+        order.totalAmount = OrderAlertNotifier.orderTotal(intent);
+        order.createdAt = intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_CREATED_AT);
+        JsonObject address = new JsonObject();
+        address.addProperty("line1", OrderAlertNotifier.deliveryAddress(intent));
+        address.addProperty("distanceLabel", OrderAlertNotifier.distance(intent));
+        order.addressSnapshot = address;
+        return order;
     }
 
     private void showAcceptOrderDialog(String orderId, String deliveryAddress, String payout, String meta) {
@@ -1949,6 +2431,7 @@ public final class MainActivity extends AppCompatActivity {
         java.util.HashMap<String, String> data = new java.util.HashMap<>();
         putIfPresent(data, OrderAlertNotifier.EXTRA_ORDER_ID, intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_ID));
         putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_ADDRESS, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_ADDRESS));
+        putIfPresent(data, OrderAlertNotifier.EXTRA_ORDER_TOTAL, intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_TOTAL));
         putIfPresent(data, OrderAlertNotifier.EXTRA_ESTIMATED_PAYOUT, intent.getStringExtra(OrderAlertNotifier.EXTRA_ESTIMATED_PAYOUT));
         putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_DISTANCE, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_DISTANCE));
         putIfPresent(data, OrderAlertNotifier.EXTRA_ORDER_CREATED_AT, intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_CREATED_AT));
@@ -2289,6 +2772,8 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         if (activeOrder != null && targetOrderId.equals(activeOrder.id)) {
+            activeMainTab = MainTab.HOME;
+            render();
             Toast.makeText(this, "Opened active order " + Dtos.shortOrderId(activeOrder), Toast.LENGTH_SHORT).show();
             targetOrderId = null;
             return;
@@ -2296,6 +2781,11 @@ public final class MainActivity extends AppCompatActivity {
         if (availableOrders != null && availableOrders.items != null) {
             for (Dtos.OrderDto order : availableOrders.items) {
                 if (targetOrderId.equals(order.id)) {
+                    activeMainTab = MainTab.HOME;
+                    render();
+                    if (mainScroll != null) {
+                        mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+                    }
                     Toast.makeText(this, "Order is available to claim", Toast.LENGTH_SHORT).show();
                     targetOrderId = null;
                     return;
@@ -2304,8 +2794,8 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
-    private ScrollView wrap(View view) {
-        ScrollView scrollView = new ScrollView(this);
+    private NestedScrollView wrap(View view) {
+        NestedScrollView scrollView = new NestedScrollView(this);
         scrollView.addView(view);
         return scrollView;
     }

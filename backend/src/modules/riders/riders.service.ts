@@ -7,6 +7,7 @@ import {
 import { OrderStatus, Prisma, RiderStatus, User } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DeliveryEventsService } from '../delivery/delivery-events.service';
+import { OrderListPeriod } from '../orders/dto/list-orders-query.dto';
 import { OrdersService } from '../orders/orders.service';
 import { PatchDeliveryStatusDto } from './dto/patch-delivery-status.dto';
 import { PatchRiderLocationDto } from './dto/patch-rider-location.dto';
@@ -60,6 +61,11 @@ const riderDeliveryStatuses: OrderStatus[] = [
   OrderStatus.DELIVERED,
 ];
 
+const riderHistoryStatuses: OrderStatus[] = [
+  OrderStatus.DELIVERED,
+  OrderStatus.CANCELLED,
+];
+
 @Injectable()
 export class RidersService {
   constructor(
@@ -107,6 +113,99 @@ export class RidersService {
   async activeOrder(user: User) {
     const rider = await this.riderForUser(user);
     return this.activeOrderForRiderId(rider.id);
+  }
+
+  async orderHistory(
+    user: User,
+    params: { period?: OrderListPeriod; page: number; pageSize: number },
+  ) {
+    const rider = await this.riderForUser(user);
+    const period = params.period ?? OrderListPeriod.THIS_MONTH;
+    const lowerBound = this.historyLowerBound(period);
+    const where: Prisma.OrderWhereInput = {
+      riderId: rider.id,
+      status: { in: riderHistoryStatuses },
+      ...(lowerBound ? { updatedAt: { gte: lowerBound } } : {}),
+    };
+    const skip = (params.page - 1) * params.pageSize;
+
+    const [items, total, deliveredCount, metricRows] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: params.pageSize,
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          deliveryFee: true,
+          totalAmount: true,
+          addressSnapshot: true,
+          pickedUpAt: true,
+          deliveredAt: true,
+          deliveryDistanceKm: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.order.count({ where }),
+      this.prisma.order.count({
+        where: { ...where, status: OrderStatus.DELIVERED },
+      }),
+      this.prisma.order.findMany({
+        where,
+        select: {
+          pickedUpAt: true,
+          deliveredAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    const durations = metricRows
+      .map((order) => this.deliveryDurationSeconds(order))
+      .filter((seconds): seconds is number => seconds != null);
+    const totalDeliveryTimeSeconds = durations.reduce(
+      (sum, seconds) => sum + seconds,
+      0,
+    );
+    const averageDeliveryTimeSeconds = durations.length
+      ? Math.round(totalDeliveryTimeSeconds / durations.length)
+      : 0;
+
+    return {
+      period,
+      summary: {
+        totalDeliveries: deliveredCount,
+        completedOrders: deliveredCount,
+        totalDeliveryTimeSeconds,
+        averageDeliveryTimeSeconds,
+      },
+      orders: {
+        items: items.map((order) => ({
+          id: order.id,
+          status: order.status,
+          deliveryAddress: this.deliveryAddressLabel(order.addressSnapshot),
+          orderAmount: order.totalAmount.toString(),
+          earnings: order.deliveryFee.toString(),
+          pickedUpAt: order.pickedUpAt?.toISOString() ?? null,
+          deliveredAt:
+            order.deliveredAt?.toISOString() ??
+            (order.status === OrderStatus.DELIVERED
+              ? order.updatedAt.toISOString()
+              : null),
+          completedAt:
+            order.deliveredAt?.toISOString() ?? order.updatedAt.toISOString(),
+          deliveryDurationSeconds: this.deliveryDurationSeconds(order),
+          deliveryDistanceKm: order.deliveryDistanceKm?.toString() ?? null,
+          createdAt: order.createdAt.toISOString(),
+        })),
+        total,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    };
   }
 
   async registerDevice(user: User, dto: RegisterRiderDeviceDto) {
@@ -264,6 +363,53 @@ export class RidersService {
       order: activeOrder,
     });
     return rider;
+  }
+
+  private historyLowerBound(period: OrderListPeriod) {
+    if (period === OrderListPeriod.ALL_TIME) {
+      return undefined;
+    }
+    const now = new Date();
+    if (period === OrderListPeriod.THIS_MONTH) {
+      return new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+      );
+    }
+    return new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1, 0, 0, 0, 0),
+    );
+  }
+
+  private deliveryDurationSeconds(order: {
+    pickedUpAt: Date | null;
+    deliveredAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    const start = order.pickedUpAt ?? order.createdAt;
+    const end = order.deliveredAt ?? order.updatedAt;
+    const seconds = Math.round((end.getTime() - start.getTime()) / 1000);
+    return seconds > 0 ? seconds : null;
+  }
+
+  private deliveryAddressLabel(value: Prisma.JsonValue | null | undefined) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'Delivery address';
+    }
+    const object = value as Record<string, unknown>;
+    const line1 = this.stringValue(object.line1);
+    const line2 = this.stringValue(object.line2);
+    const city = this.stringValue(object.city);
+    const state = this.stringValue(object.state);
+    const pincode = this.stringValue(object.pincode);
+    const tail = [city, state, pincode].filter(Boolean).join(', ');
+    return (
+      [line1, line2, tail].filter(Boolean).join(' - ') || 'Delivery address'
+    );
+  }
+
+  private stringValue(value: unknown) {
+    return typeof value === 'string' ? value.trim() : '';
   }
 
   private async riderForUser(user: User) {

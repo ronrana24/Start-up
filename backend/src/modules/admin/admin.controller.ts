@@ -59,6 +59,11 @@ export class AdminController {
     });
   }
 
+  @Get('users/:id')
+  userProfile(@Param('id') id: string) {
+    return this.admin.userProfile(id);
+  }
+
   @Get('products/:id/analytics')
   productAnalytics(
     @Param('id') id: string,

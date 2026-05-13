@@ -329,7 +329,13 @@ export class OrdersService {
 
       await tx.order.update({
         where: { id: orderId },
-        data: { status: next },
+        data: {
+          status: next,
+          ...(next === OrderStatus.PICKED_UP ? { pickedUpAt: new Date() } : {}),
+          ...(next === OrderStatus.DELIVERED
+            ? { deliveredAt: new Date() }
+            : {}),
+        },
       });
     });
 

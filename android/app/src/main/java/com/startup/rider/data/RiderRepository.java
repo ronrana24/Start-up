@@ -136,6 +136,10 @@ public final class RiderRepository {
         enqueue(api.activeOrder(), result);
     }
 
+    public void orderHistory(String period, int page, int pageSize, Result<Dtos.RiderOrderHistoryResponse> result) {
+        enqueue(api.orderHistory(period, page, pageSize), result);
+    }
+
     public void registerDevice(String token, Result<Object> result) {
         sessionStore.saveDeviceToken(token);
         if (!sessionStore.isLoggedIn()) {

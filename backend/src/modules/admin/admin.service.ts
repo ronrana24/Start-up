@@ -23,6 +23,11 @@ type InsightCard = {
   detail: string;
 };
 
+type StatusGroup = {
+  status: OrderStatus;
+  _count: { _all: number };
+};
+
 function decimalToNumber(value: Prisma.Decimal | null | undefined): number {
   return value ? Number(value.toString()) : 0;
 }
@@ -144,6 +149,24 @@ function card(title: string, value: string, detail: string): InsightCard {
   return { title, value, detail };
 }
 
+function isoOrNull(value: Date | null | undefined): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function latestIso(...values: Array<Date | null | undefined>): string | null {
+  const latest = values
+    .filter((value): value is Date => Boolean(value))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+  return latest?.toISOString() ?? null;
+}
+
+function statusCounts(groups: StatusGroup[]) {
+  return Object.values(OrderStatus).map((status) => ({
+    status,
+    count: groups.find((group) => group.status === status)?._count._all ?? 0,
+  }));
+}
+
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
@@ -182,6 +205,327 @@ export class AdminService {
       total,
       page: params.page,
       pageSize: params.pageSize,
+    };
+  }
+
+  async userProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        phone: true,
+        email: true,
+        name: true,
+        businessName: true,
+        businessType: true,
+        gstNumber: true,
+        isOnboardingCompleted: true,
+        role: true,
+        googleId: true,
+        passwordHash: true,
+        createdAt: true,
+        updatedAt: true,
+        addresses: {
+          orderBy: [{ isDefault: 'desc' }, { id: 'asc' }],
+          select: {
+            id: true,
+            line1: true,
+            line2: true,
+            city: true,
+            state: true,
+            pincode: true,
+            isDefault: true,
+          },
+        },
+        rider: {
+          select: {
+            id: true,
+            userId: true,
+            name: true,
+            phone: true,
+            status: true,
+            currentLocation: true,
+            createdAt: true,
+            updatedAt: true,
+            _count: { select: { orders: true, devices: true } },
+            devices: {
+              orderBy: { lastSeenAt: 'desc' },
+              take: 5,
+              select: {
+                id: true,
+                platform: true,
+                isActive: true,
+                lastSeenAt: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            addresses: true,
+            orders: true,
+            pricingRules: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const recentOrderSelect = {
+      id: true,
+      status: true,
+      deliveryType: true,
+      totalAmount: true,
+      createdAt: true,
+      updatedAt: true,
+      pickedUpAt: true,
+      deliveredAt: true,
+      deliveryDistanceKm: true,
+      addressSnapshot: true,
+      user: {
+        select: {
+          id: true,
+          phone: true,
+          email: true,
+          name: true,
+          businessName: true,
+          role: true,
+        },
+      },
+      rider: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          status: true,
+        },
+      },
+    } satisfies Prisma.OrderSelect;
+
+    const [
+      buyerStatusGroups,
+      buyerAggregate,
+      buyerRecentOrders,
+      pricingTotal,
+      pricingActive,
+      recentPricingRules,
+    ] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['status'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { userId },
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+        _avg: { totalAmount: true },
+        _max: { createdAt: true, updatedAt: true },
+      }),
+      this.prisma.order.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 8,
+        select: recentOrderSelect,
+      }),
+      this.prisma.userProductPricingRule.count({ where: { userId } }),
+      this.prisma.userProductPricingRule.count({
+        where: { userId, isActive: true },
+      }),
+      this.prisma.userProductPricingRule.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          productId: true,
+          discountType: true,
+          discountValue: true,
+          isActive: true,
+          adminNote: true,
+          createdAt: true,
+          updatedAt: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              category: true,
+              basePrice: true,
+            },
+          },
+          updatedByAdmin: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              businessName: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const riderId = user.rider?.id;
+    const riderData = riderId
+      ? await Promise.all([
+          this.prisma.order.groupBy({
+            by: ['status'],
+            where: { riderId },
+            _count: { _all: true },
+          }),
+          this.prisma.order.aggregate({
+            where: { riderId },
+            _count: { _all: true },
+            _sum: { deliveryDistanceKm: true },
+            _max: { createdAt: true, updatedAt: true },
+          }),
+          this.prisma.order.findMany({
+            where: { riderId },
+            orderBy: { updatedAt: 'desc' },
+            take: 8,
+            select: recentOrderSelect,
+          }),
+          this.prisma.order.findMany({
+            where: {
+              riderId,
+              pickedUpAt: { not: null },
+              deliveredAt: { not: null },
+            },
+            orderBy: { deliveredAt: 'desc' },
+            take: 200,
+            select: { pickedUpAt: true, deliveredAt: true },
+          }),
+        ]).then(([statusGroups, aggregate, recentOrders, durationRows]) => ({
+          statusGroups,
+          aggregate,
+          recentOrders,
+          durationRows,
+        }))
+      : {
+          statusGroups: [] as StatusGroup[],
+          aggregate: null,
+          recentOrders: [] as typeof buyerRecentOrders,
+          durationRows: [] as Array<{
+            pickedUpAt: Date | null;
+            deliveredAt: Date | null;
+          }>,
+        };
+
+    const serializeOrder = (order: (typeof buyerRecentOrders)[number]) => ({
+      id: order.id,
+      status: order.status,
+      deliveryType: order.deliveryType,
+      totalAmount: decimalToNumber(order.totalAmount),
+      createdAt: order.createdAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
+      pickedUpAt: isoOrNull(order.pickedUpAt),
+      deliveredAt: isoOrNull(order.deliveredAt),
+      deliveryDistanceKm: decimalToNumber(order.deliveryDistanceKm),
+      addressSnapshot: order.addressSnapshot,
+      user: order.user,
+      rider: order.rider,
+    });
+
+    const riderDurations = riderData.durationRows
+      .map((order) =>
+        order.pickedUpAt && order.deliveredAt
+          ? order.deliveredAt.getTime() - order.pickedUpAt.getTime()
+          : 0,
+      )
+      .filter((duration) => duration > 0);
+    const averageRiderDeliveryMinutes = riderDurations.length
+      ? riderDurations.reduce((sum, duration) => sum + duration, 0) /
+        riderDurations.length /
+        60_000
+      : 0;
+
+    const riderDeviceLastSeen = user.rider?.devices[0]?.lastSeenAt ?? null;
+    const lastActiveAt = latestIso(
+      user.updatedAt,
+      buyerAggregate._max.updatedAt,
+      riderData.aggregate?._max.updatedAt,
+      riderDeviceLastSeen,
+    );
+
+    return {
+      profile: {
+        id: user.id,
+        phone: user.phone,
+        email: user.email,
+        name: user.name,
+        businessName: user.businessName,
+        businessType: user.businessType,
+        gstNumber: user.gstNumber,
+        role: user.role,
+        isOnboardingCompleted: user.isOnboardingCompleted,
+        createdAt: user.createdAt.toISOString(),
+        updatedAt: user.updatedAt.toISOString(),
+        auth: {
+          hasGoogleAccount: Boolean(user.googleId),
+          hasPassword: Boolean(user.passwordHash),
+          providers: [
+            user.googleId ? 'GOOGLE' : null,
+            user.passwordHash ? 'PASSWORD' : null,
+          ].filter((provider): provider is string => Boolean(provider)),
+        },
+        counts: user._count,
+      },
+      addresses: user.addresses,
+      rider: user.rider
+        ? {
+            ...user.rider,
+            createdAt: user.rider.createdAt.toISOString(),
+            updatedAt: user.rider.updatedAt.toISOString(),
+            devices: user.rider.devices.map((device) => ({
+              ...device,
+              lastSeenAt: device.lastSeenAt.toISOString(),
+              createdAt: device.createdAt.toISOString(),
+              updatedAt: device.updatedAt.toISOString(),
+            })),
+          }
+        : null,
+      orderStats: {
+        buyer: {
+          totalOrders: buyerAggregate._count._all,
+          totalRevenue: decimalToNumber(buyerAggregate._sum.totalAmount),
+          averageOrderValue: decimalToNumber(buyerAggregate._avg.totalAmount),
+          lastOrderAt: isoOrNull(buyerAggregate._max.createdAt),
+          byStatus: statusCounts(buyerStatusGroups),
+        },
+        rider: {
+          totalOrders: riderData.aggregate?._count._all ?? 0,
+          totalDistanceKm: decimalToNumber(
+            riderData.aggregate?._sum.deliveryDistanceKm,
+          ),
+          averageDeliveryMinutes: averageRiderDeliveryMinutes,
+          lastOrderAt: isoOrNull(riderData.aggregate?._max.createdAt),
+          byStatus: statusCounts(riderData.statusGroups),
+        },
+      },
+      pricing: {
+        totalRules: pricingTotal,
+        activeRules: pricingActive,
+        recentRules: recentPricingRules.map((rule) => ({
+          ...rule,
+          discountValue: decimalToNumber(rule.discountValue),
+          product: {
+            ...rule.product,
+            basePrice: decimalToNumber(rule.product.basePrice),
+          },
+          createdAt: rule.createdAt.toISOString(),
+          updatedAt: rule.updatedAt.toISOString(),
+        })),
+      },
+      activity: {
+        lastActiveAt,
+        buyerRecentOrders: buyerRecentOrders.map(serializeOrder),
+        riderRecentOrders: riderData.recentOrders.map(serializeOrder),
+      },
     };
   }
 

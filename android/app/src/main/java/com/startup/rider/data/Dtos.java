@@ -228,6 +228,33 @@ public final class Dtos {
         public List<OrderItemDto> items = new ArrayList<>();
     }
 
+    public static final class RiderOrderHistoryResponse {
+        public String period;
+        public RiderOrderHistorySummary summary;
+        public Page<RiderHistoryOrderDto> orders;
+    }
+
+    public static final class RiderOrderHistorySummary {
+        public int totalDeliveries;
+        public int completedOrders;
+        public long totalDeliveryTimeSeconds;
+        public long averageDeliveryTimeSeconds;
+    }
+
+    public static final class RiderHistoryOrderDto {
+        public String id;
+        public String status;
+        public String deliveryAddress;
+        public String orderAmount;
+        public String earnings;
+        public String pickedUpAt;
+        public String deliveredAt;
+        public String completedAt;
+        public Long deliveryDurationSeconds;
+        public String deliveryDistanceKm;
+        public String createdAt;
+    }
+
     public static final class Coordinates {
         public final double lat;
         public final double lng;

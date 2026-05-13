@@ -140,6 +140,9 @@ model Order {
   addressSnapshot Json
   riderId         String?
   rider           Rider?        @relation(fields: [riderId], references: [id])
+  pickedUpAt      DateTime?
+  deliveredAt     DateTime?
+  deliveryDistanceKm Decimal?   @db.Decimal(8, 2)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -148,6 +151,7 @@ model Order {
   @@index([deliveryType])
   @@index([riderId])
   @@index([riderId, status])
+  @@index([riderId, status, updatedAt])
 }
 
 model OrderItem {

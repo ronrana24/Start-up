@@ -23,6 +23,7 @@ public final class OrderAlertNotifier {
     public static final String ACTION_ORDER_AVAILABLE = "com.startup.rider.ORDER_AVAILABLE";
     public static final String EXTRA_ORDER_ID = "orderId";
     public static final String EXTRA_DELIVERY_ADDRESS = "deliveryAddress";
+    public static final String EXTRA_ORDER_TOTAL = "orderTotal";
     public static final String EXTRA_ESTIMATED_PAYOUT = "estimatedPayout";
     public static final String EXTRA_DELIVERY_DISTANCE = "deliveryDistance";
     public static final String EXTRA_ORDER_CREATED_AT = "orderCreatedAt";
@@ -40,7 +41,7 @@ public final class OrderAlertNotifier {
                 context,
                 order.id,
                 Dtos.deliveryAddress(order),
-                Dtos.payout(order),
+                order.totalAmount == null || order.totalAmount.trim().isEmpty() ? Dtos.payout(order) : Dtos.total(order),
                 Dtos.timeSinceCreated(order)
         );
     }
@@ -50,7 +51,7 @@ public final class OrderAlertNotifier {
                 context,
                 data == null ? null : data.get(EXTRA_ORDER_ID),
                 valueOrFallback(data == null ? null : data.get(EXTRA_DELIVERY_ADDRESS), "Delivery address"),
-                valueOrFallback(data == null ? null : data.get(EXTRA_ESTIMATED_PAYOUT), "Payout available"),
+                orderValue(data),
                 valueOrFallback(data == null ? null : data.get(EXTRA_DELIVERY_DISTANCE), "Distance pending")
         );
     }
@@ -76,6 +77,7 @@ public final class OrderAlertNotifier {
         }
         put(intent, EXTRA_ORDER_ID, data.get(EXTRA_ORDER_ID));
         put(intent, EXTRA_DELIVERY_ADDRESS, data.get(EXTRA_DELIVERY_ADDRESS));
+        put(intent, EXTRA_ORDER_TOTAL, data.get(EXTRA_ORDER_TOTAL));
         put(intent, EXTRA_ESTIMATED_PAYOUT, data.get(EXTRA_ESTIMATED_PAYOUT));
         put(intent, EXTRA_DELIVERY_DISTANCE, data.get(EXTRA_DELIVERY_DISTANCE));
         put(intent, EXTRA_ORDER_CREATED_AT, data.get(EXTRA_ORDER_CREATED_AT));
@@ -95,6 +97,10 @@ public final class OrderAlertNotifier {
 
     public static String payout(Intent intent) {
         return valueOrFallback(intent == null ? null : intent.getStringExtra(EXTRA_ESTIMATED_PAYOUT), "Payout available");
+    }
+
+    public static String orderTotal(Intent intent) {
+        return valueOrFallback(intent == null ? null : intent.getStringExtra(EXTRA_ORDER_TOTAL), payout(intent));
     }
 
     public static String distance(Intent intent) {
@@ -154,5 +160,12 @@ public final class OrderAlertNotifier {
 
     private static String valueOrFallback(String value, String fallback) {
         return value == null || value.trim().isEmpty() ? fallback : value;
+    }
+
+    private static String orderValue(Map<String, String> data) {
+        if (data == null) {
+            return "Order value available";
+        }
+        return valueOrFallback(data.get(EXTRA_ORDER_TOTAL), valueOrFallback(data.get(EXTRA_ESTIMATED_PAYOUT), "Order value available"));
     }
 }

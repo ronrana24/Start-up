@@ -55,6 +55,16 @@ export type AdminUser = {
   _count?: { orders: number; addresses: number };
 };
 
+export type AdminAddress = {
+  id: string;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault: boolean;
+};
+
 export type AdminProduct = {
   id: string;
   name: string;
@@ -115,6 +125,106 @@ export type AdminOrder = {
       imageUrls?: string[];
     } | null;
   }>;
+};
+
+export type AdminProfileOrder = Pick<
+  AdminOrder,
+  "id" | "status" | "deliveryType" | "addressSnapshot"
+> & {
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  deliveryDistanceKm: number;
+  user: Pick<
+    AdminUser,
+    "id" | "phone" | "email" | "name" | "businessName" | "role"
+  >;
+  rider: {
+    id: string;
+    name: string;
+    phone: string;
+    status: "IDLE" | "BUSY";
+  } | null;
+};
+
+export type AdminUserProfile = {
+  profile: AdminUser & {
+    isOnboardingCompleted: boolean;
+    auth: {
+      hasGoogleAccount: boolean;
+      hasPassword: boolean;
+      providers: string[];
+    };
+    counts: {
+      addresses: number;
+      orders: number;
+      pricingRules: number;
+    };
+  };
+  addresses: AdminAddress[];
+  rider: {
+    id: string;
+    userId: string;
+    name: string;
+    phone: string;
+    status: "IDLE" | "BUSY";
+    currentLocation: unknown;
+    createdAt: string;
+    updatedAt: string;
+    _count: { orders: number; devices: number };
+    devices: Array<{
+      id: string;
+      platform: string | null;
+      isActive: boolean;
+      lastSeenAt: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  } | null;
+  orderStats: {
+    buyer: {
+      totalOrders: number;
+      totalRevenue: number;
+      averageOrderValue: number;
+      lastOrderAt: string | null;
+      byStatus: Array<{ status: OrderStatus; count: number }>;
+    };
+    rider: {
+      totalOrders: number;
+      totalDistanceKm: number;
+      averageDeliveryMinutes: number;
+      lastOrderAt: string | null;
+      byStatus: Array<{ status: OrderStatus; count: number }>;
+    };
+  };
+  pricing: {
+    totalRules: number;
+    activeRules: number;
+    recentRules: Array<{
+      id: string;
+      productId: string;
+      discountType: PricingDiscountType;
+      discountValue: number;
+      isActive: boolean;
+      adminNote: string | null;
+      createdAt: string;
+      updatedAt: string;
+      product: Pick<AdminProduct, "id" | "name" | "category" | "basePrice">;
+      updatedByAdmin: {
+        id: string;
+        email: string | null;
+        name: string | null;
+        businessName: string;
+      } | null;
+    }>;
+  };
+  activity: {
+    lastActiveAt: string | null;
+    buyerRecentOrders: AdminProfileOrder[];
+    riderRecentOrders: AdminProfileOrder[];
+  };
 };
 
 export type Paginated<T> = {
@@ -383,6 +493,18 @@ export async function getAdminUserAnalytics(
     >(
       apiBaseUrl(),
       `/api/admin/users/${userId}/analytics?${params.toString()}`,
+      { method: "GET" },
+    ),
+  );
+}
+
+export async function getAdminUserProfile(
+  userId: string,
+): Promise<AdminUserProfile> {
+  return unwrapBody(
+    await apiJsonAuthorized<AdminUserProfile | ApiEnvelope<AdminUserProfile>>(
+      apiBaseUrl(),
+      `/api/admin/users/${userId}`,
       { method: "GET" },
     ),
   );

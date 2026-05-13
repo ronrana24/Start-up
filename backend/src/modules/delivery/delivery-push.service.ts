@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 type PushOrder = {
   id: string;
   deliveryFee: Prisma.Decimal | string | number;
+  totalAmount?: Prisma.Decimal | string | number;
   addressSnapshot?: Prisma.JsonValue | null;
   createdAt: Date | string;
 };
@@ -22,6 +23,7 @@ type PushPayload = {
   orderId: string;
   pickupAddress: string;
   deliveryAddress: string;
+  orderTotal: string;
   estimatedPayout: string;
   deliveryDistance: string;
   orderCreatedAt: string;
@@ -81,10 +83,18 @@ export class DeliveryPushService {
       currency: 'INR',
       maximumFractionDigits: 0,
     });
+    const orderTotal = Number(
+      order.totalAmount ?? order.deliveryFee,
+    ).toLocaleString('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    });
     return {
       orderId: order.id,
       pickupAddress: this.config.get<string>('delivery.pickupLabel') ?? '',
       deliveryAddress,
+      orderTotal,
       estimatedPayout,
       deliveryDistance: this.deliveryDistanceLabel(order.addressSnapshot),
       orderCreatedAt:
@@ -107,13 +117,14 @@ export class DeliveryPushService {
           tokens: batch,
           notification: {
             title: 'New delivery available',
-            body: `Order ${payload.orderId.slice(0, 8)} - ${payload.deliveryAddress} - ${payload.estimatedPayout}`,
+            body: `Order ${payload.orderId.slice(0, 8)} - ${payload.deliveryAddress} - ${payload.orderTotal}`,
           },
           data: {
             type: 'order_available',
             orderId: payload.orderId,
             pickupAddress: payload.pickupAddress,
             deliveryAddress: payload.deliveryAddress,
+            orderTotal: payload.orderTotal,
             estimatedPayout: payload.estimatedPayout,
             deliveryDistance: payload.deliveryDistance,
             orderCreatedAt: payload.orderCreatedAt,
@@ -159,12 +170,13 @@ export class DeliveryPushService {
       to,
       sound: 'default',
       title: 'New delivery available',
-      body: `Order ${payload.orderId.slice(0, 8)} - ${payload.deliveryAddress} - ${payload.estimatedPayout}`,
+      body: `Order ${payload.orderId.slice(0, 8)} - ${payload.deliveryAddress} - ${payload.orderTotal}`,
       data: {
         type: 'order_available',
         orderId: payload.orderId,
         pickupAddress: payload.pickupAddress,
         deliveryAddress: payload.deliveryAddress,
+        orderTotal: payload.orderTotal,
         estimatedPayout: payload.estimatedPayout,
         deliveryDistance: payload.deliveryDistance,
         orderCreatedAt: payload.orderCreatedAt,
