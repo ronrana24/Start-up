@@ -24,6 +24,7 @@ const REFRESH_SECONDS = 15;
 
 type RiderLocationPayload = {
   orderId?: string;
+  orderIds?: string[];
   location?: {
     lat?: number;
     lng?: number;
@@ -40,6 +41,15 @@ function isRiderLocationPayload(value: unknown): value is RiderLocationPayload {
     typeof location.lng === "number" &&
     Number.isFinite(location.lat) &&
     Number.isFinite(location.lng)
+  );
+}
+
+function payloadIncludesOrder(
+  payload: RiderLocationPayload,
+  orderId: string,
+): boolean {
+  return (
+    payload.orderId === orderId || payload.orderIds?.includes(orderId) === true
   );
 }
 
@@ -499,7 +509,7 @@ export function OrdersTrackingHubScreen() {
     const applyLocationUpdate = (payload: unknown) => {
       if (
         !isRiderLocationPayload(payload) ||
-        payload.orderId !== selectedOrderId
+        !payloadIncludesOrder(payload, selectedOrderId)
       ) {
         return;
       }

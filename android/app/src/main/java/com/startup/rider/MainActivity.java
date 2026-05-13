@@ -37,6 +37,7 @@ import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -86,12 +87,15 @@ import com.startup.rider.notifications.OrderAlertNotifier;
 import com.startup.rider.notifications.RiderRuntimeState;
 import com.startup.rider.realtime.DeliverySocketManager;
 import com.startup.rider.ui.Ui;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.security.MessageDigest;
 import java.util.function.Consumer;
@@ -107,6 +111,8 @@ public final class MainActivity extends AppCompatActivity {
     private static final int REQ_NOTIFICATIONS = 1003;
     private static final long OTP_RESEND_MS = 30_000L;
     private static final long RUNTIME_PROMPT_COOLDOWN_MS = 2_000L;
+    private static final long ACTIVE_ORDERS_SOCKET_REFRESH_DELAY_MS = 750L;
+    private static final long PERFORMANCE_REFRESH_MS = 300_000L;
     private static final Pattern OTP_PATTERN = Pattern.compile("\\b(\\d{6})\\b");
 
     private enum AuthMode {
@@ -121,6 +127,7 @@ public final class MainActivity extends AppCompatActivity {
 
     private enum MainTab {
         HOME,
+        TRACKING,
         ORDERS,
         ALERTS,
         ACCOUNT
@@ -137,6 +144,15 @@ public final class MainActivity extends AppCompatActivity {
         }
     };
     private final Runnable stopOrderAlertSoundRunnable = this::stopOrderAlertSound;
+    private final Runnable activeOrdersSocketRefresh = new Runnable() {
+        @Override
+        public void run() {
+            activeOrdersRefreshScheduled = false;
+            if (resumed && sessionStore != null && sessionStore.isLoggedIn()) {
+                refreshActiveOrder();
+            }
+        }
+    };
 
     private AppContainer container;
     private RiderRepository repository;
@@ -153,18 +169,31 @@ public final class MainActivity extends AppCompatActivity {
     private LinearLayout content;
     private LinearLayout bottomNav;
     private AlertDialog orderAlertDialog;
+    private BottomSheetDialog orderDetailsSheet;
+    private LinearLayout orderDetailsSheetContent;
     private Ringtone orderAlertRingtone;
     private Dtos.RiderDto rider;
     private Dtos.OrderDto activeOrder;
+    private final List<Dtos.OrderDto> activeOrders = new ArrayList<>();
     private Dtos.Page<Dtos.OrderDto> availableOrders;
+    private Dtos.RiderOrderHistoryResponse performanceSnapshot;
+    private final Map<String, Dtos.OrderDto> orderDetailsCache = new HashMap<>();
     private final List<Dtos.OrderDto> pushedOrderOffers = new ArrayList<>();
     private final Set<String> rejectedOfferIds = new HashSet<>();
+    private String selectedActiveOrderId;
     private int availablePage = 1;
     private String socketState = "disconnected";
     private String targetOrderId;
     private String lastError;
     private boolean resumed;
     private boolean locationSnapshotInFlight;
+    private boolean activeOrdersRefreshScheduled;
+    private boolean performanceRefreshInFlight;
+    private boolean orderDetailsLoading;
+    private boolean orderDetailsExpanded;
+    private String orderDetailsError;
+    private String openOrderDetailsId;
+    private long lastPerformanceRefreshAtMs;
     private AuthMode authMode = AuthMode.PICK;
     private MainTab activeMainTab = MainTab.HOME;
     private boolean authBusy;
@@ -251,6 +280,8 @@ public final class MainActivity extends AppCompatActivity {
         unregisterOrderAvailableReceiver();
         stopOrderAlertSound();
         handler.removeCallbacks(autoRefresh);
+        handler.removeCallbacks(activeOrdersSocketRefresh);
+        activeOrdersRefreshScheduled = false;
         super.onStop();
     }
 
@@ -262,6 +293,7 @@ public final class MainActivity extends AppCompatActivity {
         unregisterSmsReceiver();
         unregisterOrderAvailableReceiver();
         dismissOrderAlertDialog();
+        dismissOrderDetailsSheet();
         stopOrderAlertSound();
         handler.removeCallbacks(otpTicker);
         super.onDestroy();
@@ -276,6 +308,7 @@ public final class MainActivity extends AppCompatActivity {
         content = null;
         bottomNav = null;
         dismissOrderAlertDialog();
+        dismissOrderDetailsSheet();
         stopOrderAlertSound();
         unregisterSmsReceiver();
         handler.removeCallbacks(otpTicker);
@@ -1623,7 +1656,7 @@ public final class MainActivity extends AppCompatActivity {
         mainScroll.setNestedScrollingEnabled(true);
         mainScroll.setPadding(0, 0, 0, Ui.dp(this, 106));
         content = Ui.vertical(this);
-        content.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 28));
+        content.setPadding(Ui.dp(this, 14), Ui.dp(this, 16) + statusBarHeight(), Ui.dp(this, 14), Ui.dp(this, 28));
         content.setLayoutParams(new NestedScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1663,11 +1696,16 @@ public final class MainActivity extends AppCompatActivity {
         if (activeMainTab == MainTab.ORDERS) {
             content.addView(sectionTitle("Orders", "Accept new jobs and manage your active delivery."));
             Ui.gap(content, 10);
-            if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
-                content.addView(activeOrderCard(activeOrder));
+            Dtos.OrderDto selected = selectedActiveOrder();
+            if (selected != null) {
+                content.addView(activeOrderCard(selected));
                 Ui.gap(content, 10);
             }
             content.addView(availableOrdersCard());
+        } else if (activeMainTab == MainTab.TRACKING) {
+            content.addView(sectionTitle("Tracking", "Switch between active deliveries and navigate instantly."));
+            Ui.gap(content, 10);
+            content.addView(trackingScreen());
         } else if (activeMainTab == MainTab.ALERTS) {
             content.addView(sectionTitle("Alerts", "Keep permissions and delivery notifications ready."));
             Ui.gap(content, 10);
@@ -1675,26 +1713,32 @@ public final class MainActivity extends AppCompatActivity {
             Ui.gap(content, 10);
             content.addView(alertsStatusCard());
         } else if (activeMainTab == MainTab.ACCOUNT) {
-            content.addView(sectionTitle("Account", "Rider profile, session, and device actions."));
+            content.addView(sectionTitle("Profile", "Rider profile, session, and device actions."));
             Ui.gap(content, 10);
             content.addView(accountCard());
             Ui.gap(content, 10);
             content.addView(actionsCard());
         } else {
-            content.addView(header());
-            Ui.gap(content, 10);
+            content.addView(homeHeroHeader());
+            Ui.gap(content, 12);
+            content.addView(performanceOverviewCards());
+            Ui.gap(content, 12);
             List<Dtos.OrderDto> offers = visibleOrderOffers();
             if (!offers.isEmpty()) {
                 content.addView(orderOffersCard("New order offers", offers, true));
-                Ui.gap(content, 10);
+                Ui.gap(content, 12);
             }
-            if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
-                content.addView(activeOrderCard(activeOrder));
-                Ui.gap(content, 10);
+            if (hasActiveDeliveries()) {
+                content.addView(premiumActiveDeliveriesCard());
+                Ui.gap(content, 12);
             }
-            content.addView(homeStatusCard());
-            Ui.gap(content, 10);
-            content.addView(permissionCard());
+            content.addView(quickActionsCard());
+            Ui.gap(content, 12);
+            content.addView(compactRoutePreviewCard());
+            if (!runtimeAccessReady()) {
+                Ui.gap(content, 12);
+                content.addView(permissionCard());
+            }
         }
         renderBottomNav();
         updateRiderRuntimeState();
@@ -1726,7 +1770,7 @@ public final class MainActivity extends AppCompatActivity {
             if (rejectedOfferIds.contains(order.id) || seen.contains(order.id) || Dtos.isTerminal(order)) {
                 continue;
             }
-            if (activeOrder != null && order.id.equals(activeOrder.id)) {
+            if (isActiveOrderId(order.id)) {
                 continue;
             }
             target.add(order);
@@ -1816,6 +1860,1263 @@ public final class MainActivity extends AppCompatActivity {
         return String.format(Locale.US, "%.1f km • %d min ETA", km, etaMinutes);
     }
 
+    private View homeHeroHeader() {
+        MaterialCardView card = Ui.card(this);
+        card.setRadius(Ui.dp(this, 24));
+        card.setCardElevation(Ui.dp(this, 8));
+        card.setStrokeWidth(0);
+        card.setUseCompatPadding(false);
+        card.setContentPadding(0, 0, 0, 0);
+
+        LinearLayout body = Ui.vertical(this);
+        body.setPadding(Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 18), Ui.dp(this, 18));
+        GradientDrawable heroBackground = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{
+                Color.parseColor("#155A49"),
+                Ui.PRIMARY,
+                Color.parseColor("#56B28F")
+        });
+        heroBackground.setCornerRadius(Ui.dp(this, 24));
+        body.setBackground(heroBackground);
+
+        LinearLayout top = Ui.horizontal(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+
+        Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+        TextView avatar = avatarView(localRider == null ? null : localRider.name);
+        top.addView(avatar);
+        Ui.gap(top, 12);
+
+        LinearLayout titleBlock = Ui.vertical(this);
+        titleBlock.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView greeting = Ui.text(this, greetingText(localRider), 20, Typeface.BOLD);
+        greeting.setTextColor(Color.WHITE);
+        titleBlock.addView(greeting);
+        TextView subtitle = Ui.text(this, homeSubtitle(), 12, Typeface.NORMAL);
+        subtitle.setTextColor(Color.argb(225, 255, 255, 255));
+        titleBlock.addView(subtitle);
+        top.addView(titleBlock);
+
+        FrameLayout bell = iconCircle(R.drawable.ic_nav_alerts, Color.WHITE, Color.argb(38, 255, 255, 255));
+        bell.setOnClickListener(v -> {
+            if (!runtimeAccessReady()) {
+                promptRequiredRuntimeAccess();
+            } else {
+                Toast.makeText(this, "Alerts are ready", Toast.LENGTH_SHORT).show();
+            }
+        });
+        top.addView(bell);
+        body.addView(top);
+
+        Ui.gap(body, 16);
+        LinearLayout statusRow = Ui.horizontal(this);
+        statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        statusRow.addView(statusToggle(localRider));
+        Ui.gap(statusRow, 8);
+        statusRow.addView(socketChip());
+        body.addView(statusRow);
+
+        if (lastError != null) {
+            Ui.gap(body, 12);
+            TextView error = Ui.text(this, lastError, 12, Typeface.BOLD);
+            error.setTextColor(Color.WHITE);
+            error.setBackground(Ui.roundedBackground(this, Color.argb(42, 220, 38, 38), 12));
+            error.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+            body.addView(error);
+        }
+
+        card.addView(body);
+        return card;
+    }
+
+    private TextView avatarView(String name) {
+        TextView avatar = Ui.text(this, initials(name), 18, Typeface.BOLD);
+        avatar.setTextColor(Ui.PRIMARY_DARK);
+        avatar.setGravity(Gravity.CENTER);
+        avatar.setBackground(Ui.roundedBackground(this, Color.WHITE, 28));
+        avatar.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+        return avatar;
+    }
+
+    private FrameLayout iconCircle(int iconRes, int iconColor, int backgroundColor) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackground(Ui.roundedBackground(this, backgroundColor, 22));
+        frame.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        frame.setClickable(true);
+        frame.setFocusable(true);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(iconColor);
+        icon.setLayoutParams(new FrameLayout.LayoutParams(Ui.dp(this, 22), Ui.dp(this, 22), Gravity.CENTER));
+        frame.addView(icon);
+        return frame;
+    }
+
+    private View statusToggle(Dtos.RiderDto localRider) {
+        LinearLayout toggle = Ui.horizontal(this);
+        toggle.setGravity(Gravity.CENTER_VERTICAL);
+        toggle.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        toggle.setBackground(Ui.roundedBackground(this, Color.argb(44, 255, 255, 255), 20));
+        toggle.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+        toggle.setClickable(true);
+        toggle.setFocusable(true);
+        toggle.setOnClickListener(v -> {
+            if (!runtimeAccessReady()) {
+                promptRequiredRuntimeAccess();
+                return;
+            }
+            publishCurrentLocationSnapshot();
+            Toast.makeText(this, "You are online and ready for deliveries", Toast.LENGTH_SHORT).show();
+        });
+
+        View dot = new View(this);
+        dot.setBackground(Ui.roundedBackground(this, runtimeAccessReady() ? Color.parseColor("#86EFAC") : Color.parseColor("#FDE68A"), 5));
+        dot.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 10), Ui.dp(this, 10)));
+        toggle.addView(dot);
+        Ui.gap(toggle, 8);
+
+        String label;
+        if (!runtimeAccessReady()) {
+            label = "Setup needed";
+        } else if (hasActiveDeliveries() || (localRider != null && "BUSY".equals(localRider.status))) {
+            label = "Busy";
+        } else {
+            label = "Online";
+        }
+        TextView text = Ui.text(this, label, 12, Typeface.BOLD);
+        text.setTextColor(Color.WHITE);
+        toggle.addView(text);
+        return toggle;
+    }
+
+    private View socketChip() {
+        TextView chip = Ui.text(this, "Live " + socketState, 12, Typeface.BOLD);
+        chip.setSingleLine(true);
+        chip.setTextColor(Color.WHITE);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        chip.setBackground(Ui.roundedBackground(this, Color.argb(34, 255, 255, 255), 20));
+        chip.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return chip;
+    }
+
+    private String greetingText(Dtos.RiderDto localRider) {
+        String firstName = localRider == null || localRider.name == null ? "Rider" : localRider.name.trim().split("\\s+")[0];
+        return "Hi, " + (firstName.isEmpty() ? "Rider" : firstName);
+    }
+
+    private String homeSubtitle() {
+        if (hasActiveDeliveries()) {
+            return activeOrders.size() + " active " + (activeOrders.size() == 1 ? "delivery" : "deliveries") + " in progress";
+        }
+        int availableCount = availableOrders == null ? 0 : availableOrders.total;
+        return availableCount > 0 ? availableCount + " new delivery opportunities nearby" : "Ready for the next delivery";
+    }
+
+    private String initials(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return "R";
+        }
+        String[] parts = name.trim().split("\\s+");
+        String first = parts[0].substring(0, 1);
+        String second = parts.length > 1 ? parts[1].substring(0, 1) : "";
+        return (first + second).toUpperCase(Locale.US);
+    }
+
+    private View performanceOverviewCards() {
+        LinearLayout root = Ui.vertical(this);
+        LinearLayout firstRow = Ui.horizontal(this);
+        firstRow.addView(metricCard(
+                "Deliveries",
+                performanceDeliveriesLabel(),
+                "Completed",
+                Ui.PRIMARY_LIGHT,
+                Ui.PRIMARY
+        ));
+        Ui.gap(firstRow, 10);
+        firstRow.addView(metricCard(
+                "Active",
+                String.valueOf(activeOrders.size()),
+                "Now assigned",
+                Color.parseColor("#EEF2FF"),
+                Color.parseColor("#4F46E5")
+        ));
+        root.addView(firstRow);
+        Ui.gap(root, 10);
+
+        LinearLayout secondRow = Ui.horizontal(this);
+        secondRow.addView(metricCard(
+                "Success rate",
+                performanceSuccessRateLabel(),
+                "Delivered jobs",
+                Color.parseColor("#ECFDF5"),
+                Color.parseColor("#059669")
+        ));
+        Ui.gap(secondRow, 10);
+        secondRow.addView(metricCard(
+                "Distance",
+                performanceDistanceLabel(),
+                "Recent delivered",
+                Color.parseColor("#FFF7ED"),
+                Color.parseColor("#EA580C")
+        ));
+        root.addView(secondRow);
+        return root;
+    }
+
+    private View metricCard(String title, String value, String subtitle, int background, int accent) {
+        MaterialCardView card = Ui.card(this);
+        card.setRadius(Ui.dp(this, 18));
+        card.setCardElevation(Ui.dp(this, 3));
+        card.setStrokeWidth(0);
+        card.setCardBackgroundColor(background);
+        card.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        LinearLayout body = Ui.vertical(this);
+        body.setPadding(Ui.dp(this, 2), Ui.dp(this, 2), Ui.dp(this, 2), Ui.dp(this, 2));
+        TextView titleView = Ui.text(this, title, 11, Typeface.BOLD);
+        titleView.setTextColor(Ui.SECONDARY);
+        body.addView(titleView);
+        TextView valueView = Ui.text(this, value, 24, Typeface.BOLD);
+        valueView.setTextColor(accent);
+        body.addView(valueView);
+        TextView subtitleView = Ui.text(this, subtitle, 11, Typeface.NORMAL);
+        subtitleView.setTextColor(Ui.SECONDARY);
+        body.addView(subtitleView);
+        card.addView(body);
+        return card;
+    }
+
+    private View premiumActiveDeliveriesCard() {
+        MaterialCardView card = Ui.card(this);
+        card.setRadius(Ui.dp(this, 20));
+        card.setCardElevation(Ui.dp(this, 4));
+        LinearLayout body = Ui.vertical(this);
+
+        LinearLayout top = Ui.horizontal(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout copy = Ui.vertical(this);
+        copy.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        copy.addView(Ui.text(this, "Active deliveries", 18, Typeface.BOLD));
+        TextView subtitle = Ui.text(this, "Swipe to switch routes without losing tracking.", 12, Typeface.NORMAL);
+        subtitle.setTextColor(Ui.SECONDARY);
+        copy.addView(subtitle);
+        top.addView(copy);
+        TextView count = Ui.text(this, String.valueOf(activeOrders.size()), 18, Typeface.BOLD);
+        count.setTextColor(Ui.PRIMARY);
+        count.setGravity(Gravity.CENTER);
+        count.setBackground(Ui.roundedBackground(this, Ui.PRIMARY_LIGHT, 18));
+        count.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 42), Ui.dp(this, 42)));
+        top.addView(count);
+        body.addView(top);
+
+        Ui.gap(body, 12);
+        body.addView(activeDeliveryPillsScroller());
+        Ui.gap(body, 12);
+        LinearLayout buttons = Ui.horizontal(this);
+        MaterialButton tracking = Ui.button(this, "Tracking");
+        tracking.setLayoutParams(weightedButtonParams());
+        bindAction(tracking, () -> {
+            activeMainTab = MainTab.TRACKING;
+            render();
+            if (mainScroll != null) {
+                mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+            }
+        });
+        MaterialButton route = Ui.secondaryButton(this, "Route");
+        route.setLayoutParams(weightedButtonParams());
+        bindAction(route, () -> {
+            Dtos.OrderDto selected = selectedActiveOrder();
+            if (selected == null) {
+                Toast.makeText(this, "No active delivery selected", Toast.LENGTH_SHORT).show();
+            } else {
+                openRoutePreview(selected);
+            }
+        });
+        buttons.addView(tracking);
+        Ui.gap(buttons, 8);
+        buttons.addView(route);
+        body.addView(buttons);
+        card.addView(body);
+        return card;
+    }
+
+    private View quickActionsCard() {
+        MaterialCardView card = Ui.card(this);
+        card.setRadius(Ui.dp(this, 20));
+        card.setCardElevation(Ui.dp(this, 3));
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "Quick actions", 18, Typeface.BOLD));
+        TextView copy = Ui.text(this, "Common rider tasks kept within thumb reach.", 12, Typeface.NORMAL);
+        copy.setTextColor(Ui.SECONDARY);
+        body.addView(copy);
+        Ui.gap(body, 12);
+
+        LinearLayout firstRow = Ui.horizontal(this);
+        firstRow.addView(quickActionTile("Navigate", "Selected drop", R.drawable.ic_nav_tracking, () -> {
+            Dtos.OrderDto selected = selectedActiveOrder();
+            if (selected == null) {
+                Toast.makeText(this, "Accept or select a delivery first", Toast.LENGTH_SHORT).show();
+            } else {
+                openNavigation(selected);
+            }
+        }));
+        Ui.gap(firstRow, 8);
+        firstRow.addView(quickActionTile("Call", "Customer", R.drawable.ic_nav_account, () -> callSelectedCustomer()));
+        body.addView(firstRow);
+        Ui.gap(body, 8);
+
+        LinearLayout secondRow = Ui.horizontal(this);
+        secondRow.addView(quickActionTile("Tracking", "Live queue", R.drawable.ic_nav_home, () -> {
+            activeMainTab = MainTab.TRACKING;
+            render();
+            if (mainScroll != null) {
+                mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+            }
+        }));
+        Ui.gap(secondRow, 8);
+        secondRow.addView(quickActionTile("History", "Completed", R.drawable.ic_nav_orders, this::openOrderHistory));
+        body.addView(secondRow);
+
+        card.addView(body);
+        return card;
+    }
+
+    private View quickActionTile(String title, String subtitle, int iconRes, Runnable action) {
+        LinearLayout tile = Ui.horizontal(this);
+        tile.setGravity(Gravity.CENTER_VERTICAL);
+        tile.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
+        tile.setBackground(Ui.strokedBackground(this, Ui.INPUT_BG, Ui.DEFAULT_BORDER, 16));
+        tile.setClickable(true);
+        tile.setFocusable(true);
+        tile.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        tile.setOnClickListener(v -> {
+            v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(70L).withEndAction(() ->
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(90L).start()
+            ).start();
+            handler.post(action);
+        });
+
+        FrameLayout icon = iconCircle(iconRes, Ui.PRIMARY, Ui.PRIMARY_LIGHT);
+        icon.setClickable(false);
+        icon.setFocusable(false);
+        tile.addView(icon);
+        Ui.gap(tile, 10);
+
+        LinearLayout copy = Ui.vertical(this);
+        copy.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        copy.addView(Ui.text(this, title, 13, Typeface.BOLD));
+        TextView sub = Ui.text(this, subtitle, 11, Typeface.NORMAL);
+        sub.setTextColor(Ui.MUTED);
+        copy.addView(sub);
+        tile.addView(copy);
+        return tile;
+    }
+
+    private View compactRoutePreviewCard() {
+        MaterialCardView card = Ui.card(this);
+        card.setRadius(Ui.dp(this, 22));
+        card.setCardElevation(Ui.dp(this, 4));
+        card.setContentPadding(0, 0, 0, 0);
+
+        LinearLayout body = Ui.vertical(this);
+        body.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14));
+        GradientDrawable previewBackground = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{
+                Color.WHITE,
+                Color.parseColor("#F1F8F6")
+        });
+        previewBackground.setCornerRadius(Ui.dp(this, 22));
+        body.setBackground(previewBackground);
+
+        LinearLayout top = Ui.horizontal(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout copy = Ui.vertical(this);
+        copy.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        copy.addView(Ui.text(this, "Live route preview", 18, Typeface.BOLD));
+        TextView sub = Ui.text(this, hasActiveDeliveries() ? "Selected delivery updates as tracking changes." : "Active routes appear here after accepting an order.", 12, Typeface.NORMAL);
+        sub.setTextColor(Ui.SECONDARY);
+        copy.addView(sub);
+        top.addView(copy);
+        body.addView(top);
+        Ui.gap(body, 12);
+
+        body.addView(routeCanvas());
+        Ui.gap(body, 12);
+        MaterialButton open = Ui.secondaryButton(this, hasActiveDeliveries() ? "Open route preview" : "Refresh location");
+        bindAction(open, () -> {
+            Dtos.OrderDto selected = selectedActiveOrder();
+            if (selected == null) {
+                publishCurrentLocationSnapshot();
+            } else {
+                openRoutePreview(selected);
+            }
+        });
+        body.addView(open);
+
+        card.addView(body);
+        return card;
+    }
+
+    private View routeCanvas() {
+        FrameLayout map = new FrameLayout(this);
+        GradientDrawable mapBackground = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{
+                Color.parseColor("#DFF7EF"),
+                Color.parseColor("#F8FAFC"),
+                Color.parseColor("#E0F2FE")
+        });
+        mapBackground.setCornerRadius(Ui.dp(this, 18));
+        map.setBackground(mapBackground);
+        map.setMinimumHeight(Ui.dp(this, 168));
+        map.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 168)));
+        map.setPadding(Ui.dp(this, 16), Ui.dp(this, 16), Ui.dp(this, 16), Ui.dp(this, 16));
+
+        View route = new View(this);
+        route.setBackground(Ui.roundedBackground(this, Color.argb(185, 31, 122, 99), 3));
+        FrameLayout.LayoutParams routeParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Ui.dp(this, 5),
+                Gravity.CENTER
+        );
+        routeParams.setMargins(Ui.dp(this, 46), 0, Ui.dp(this, 46), 0);
+        map.addView(route, routeParams);
+
+        map.addView(mapMarker("You", Ui.PRIMARY, Gravity.START | Gravity.CENTER_VERTICAL, Ui.dp(this, 18), 0));
+        map.addView(mapMarker("Drop", Color.parseColor("#EA580C"), Gravity.END | Gravity.CENTER_VERTICAL, 0, Ui.dp(this, 18)));
+
+        LinearLayout details = Ui.vertical(this);
+        details.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
+        details.setBackground(Ui.roundedBackground(this, Color.argb(235, 255, 255, 255), 14));
+        Dtos.OrderDto selected = selectedActiveOrder();
+        details.addView(Ui.text(this, selected == null ? "No selected delivery" : "#" + Dtos.shortOrderId(selected), 13, Typeface.BOLD));
+        TextView eta = Ui.text(this, selected == null ? "Accept an order to see route ETA" : offerDistanceEta(selected), 12, Typeface.NORMAL);
+        eta.setTextColor(Ui.SECONDARY);
+        details.addView(eta);
+        FrameLayout.LayoutParams detailParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
+        );
+        detailParams.setMargins(0, 0, 0, Ui.dp(this, 12));
+        map.addView(details, detailParams);
+        return map;
+    }
+
+    private View mapMarker(String label, int color, int gravity, int leftMargin, int rightMargin) {
+        LinearLayout marker = Ui.vertical(this);
+        marker.setGravity(Gravity.CENTER);
+        View dot = new View(this);
+        dot.setBackground(Ui.roundedBackground(this, color, 10));
+        dot.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 20), Ui.dp(this, 20)));
+        marker.addView(dot);
+        TextView text = Ui.text(this, label, 11, Typeface.BOLD);
+        text.setTextColor(Ui.HEADING);
+        text.setGravity(Gravity.CENTER);
+        text.setBackground(Ui.roundedBackground(this, Color.argb(220, 255, 255, 255), 10));
+        text.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
+        marker.addView(text);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                gravity
+        );
+        params.setMargins(leftMargin, 0, rightMargin, 0);
+        marker.setLayoutParams(params);
+        return marker;
+    }
+
+    private void callSelectedCustomer() {
+        Dtos.OrderDto selected = selectedActiveOrder();
+        String phone = selected == null || selected.user == null ? null : selected.user.phone;
+        if (phone == null || phone.trim().isEmpty()) {
+            Toast.makeText(this, "Customer phone is not available for this order", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(phone.trim()))));
+    }
+
+    private boolean runtimeAccessReady() {
+        return hasFineLocationPermission()
+                && isDeviceLocationEnabled()
+                && hasNotificationPermission()
+                && isIgnoringBatteryOptimizations();
+    }
+
+    private String performanceDeliveriesLabel() {
+        Dtos.RiderOrderHistorySummary summary = performanceSnapshot == null ? null : performanceSnapshot.summary;
+        return summary == null ? "--" : String.valueOf(summary.totalDeliveries);
+    }
+
+    private String performanceSuccessRateLabel() {
+        Dtos.RiderOrderHistorySummary summary = performanceSnapshot == null ? null : performanceSnapshot.summary;
+        if (summary == null || summary.totalDeliveries <= 0) {
+            return "--";
+        }
+        int rate = Math.round((summary.completedOrders * 100f) / Math.max(1, summary.totalDeliveries));
+        return Math.min(100, Math.max(0, rate)) + "%";
+    }
+
+    private String performanceDistanceLabel() {
+        if (performanceSnapshot == null || performanceSnapshot.orders == null || performanceSnapshot.orders.items == null) {
+            return "--";
+        }
+        double totalKm = 0d;
+        for (Dtos.RiderHistoryOrderDto order : performanceSnapshot.orders.items) {
+            if (order == null || order.deliveryDistanceKm == null || order.deliveryDistanceKm.trim().isEmpty()) {
+                continue;
+            }
+            try {
+                totalKm += Double.parseDouble(order.deliveryDistanceKm.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return totalKm <= 0d ? "--" : String.format(Locale.US, "%.1f km", totalKm);
+    }
+
+    private View trackingScreen() {
+        LinearLayout root = Ui.vertical(this);
+        if (!hasActiveDeliveries()) {
+            root.addView(trackingEmptyState());
+            return root;
+        }
+
+        root.addView(activeDeliveryPillsCard());
+        Ui.gap(root, 10);
+        Dtos.OrderDto selected = selectedActiveOrder();
+        if (selected != null) {
+            root.addView(activeOrderCard(selected));
+        }
+        return root;
+    }
+
+    private View activeDeliveriesSummaryCard() {
+        MaterialCardView card = Ui.card(this);
+        card.setCardBackgroundColor(Ui.PRIMARY_LIGHT);
+        card.setStrokeColor(Ui.PRIMARY);
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "Active deliveries (" + activeOrders.size() + ")", 18, Typeface.BOLD));
+        TextView copy = Ui.text(this, "Tracking is running. Switch to any active order for route preview or navigation.", 12, Typeface.NORMAL);
+        copy.setTextColor(Ui.SECONDARY);
+        body.addView(copy);
+        Ui.gap(body, 10);
+        body.addView(activeDeliveryPillsScroller());
+        Ui.gap(body, 10);
+        MaterialButton open = Ui.button(this, "Open tracking");
+        bindAction(open, () -> {
+            activeMainTab = MainTab.TRACKING;
+            render();
+            if (mainScroll != null) {
+                mainScroll.post(() -> mainScroll.smoothScrollTo(0, 0));
+            }
+        });
+        body.addView(open);
+        card.addView(body);
+        return card;
+    }
+
+    private View activeDeliveryPillsCard() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "Active order queue", 18, Typeface.BOLD));
+        TextView copy = Ui.text(this, "Each pill keeps its own status, route, and delivery actions.", 12, Typeface.NORMAL);
+        copy.setTextColor(Ui.SECONDARY);
+        body.addView(copy);
+        Ui.gap(body, 12);
+        body.addView(activeDeliveryPillsScroller());
+        card.addView(body);
+        return card;
+    }
+
+    private View activeDeliveryPillsScroller() {
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setFillViewport(false);
+        LinearLayout row = Ui.horizontal(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, Ui.dp(this, 2), 0);
+        for (Dtos.OrderDto order : activeOrders) {
+            row.addView(activeDeliveryPill(order));
+            Ui.gap(row, 8);
+        }
+        scroll.addView(row);
+        return scroll;
+    }
+
+    private View activeDeliveryPill(Dtos.OrderDto order) {
+        boolean selected = order != null && order.id != null && order.id.equals(selectedActiveOrderId);
+        LinearLayout pill = Ui.vertical(this);
+        pill.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        pill.setMinimumWidth(Ui.dp(this, 214));
+        pill.setBackground(Ui.strokedBackground(
+                this,
+                selected ? Ui.PRIMARY_LIGHT : Ui.CARD,
+                selected ? Ui.PRIMARY : Ui.DEFAULT_BORDER,
+                14
+        ));
+        pill.setClickable(true);
+        pill.setFocusable(true);
+        pill.setOnClickListener(v -> openActiveOrderDetails(order));
+
+        LinearLayout top = Ui.horizontal(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView id = Ui.text(this, "#" + Dtos.shortOrderId(order), 14, Typeface.BOLD);
+        id.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView status = Ui.text(this, Dtos.statusLabel(order == null ? null : order.status), 11, Typeface.BOLD);
+        status.setTextColor(selected ? Ui.PRIMARY : Ui.SECONDARY);
+        status.setGravity(Gravity.END);
+        top.addView(id);
+        top.addView(status);
+        pill.addView(top);
+
+        TextView customer = Ui.text(this, Dtos.customerName(order), 12, Typeface.NORMAL);
+        customer.setTextColor(Ui.HEADING);
+        pill.addView(customer);
+        TextView metrics = Ui.text(this, offerDistanceEta(order), 12, Typeface.BOLD);
+        metrics.setTextColor(Ui.SECONDARY);
+        pill.addView(metrics);
+        Ui.gap(pill, 8);
+        MaterialButton navigate = Ui.secondaryButton(this, "Navigate");
+        navigate.setMinWidth(0);
+        bindAction(navigate, () -> {
+            selectActiveOrder(order);
+            openNavigation(order);
+        });
+        pill.addView(navigate);
+        return pill;
+    }
+
+    private View trackingEmptyState() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        body.setGravity(Gravity.CENTER_HORIZONTAL);
+        body.setPadding(Ui.dp(this, 10), Ui.dp(this, 24), Ui.dp(this, 10), Ui.dp(this, 24));
+        FrameLayout badge = new FrameLayout(this);
+        badge.setBackground(Ui.roundedBackground(this, Ui.PRIMARY_LIGHT, 32));
+        badge.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_nav_tracking);
+        icon.setColorFilter(Ui.PRIMARY);
+        icon.setLayoutParams(new FrameLayout.LayoutParams(Ui.dp(this, 34), Ui.dp(this, 34), Gravity.CENTER));
+        badge.addView(icon);
+        body.addView(badge);
+        Ui.gap(body, 16);
+        TextView title = Ui.text(this, "No active deliveries available.", 19, Typeface.BOLD);
+        title.setGravity(Gravity.CENTER);
+        body.addView(title);
+        TextView copy = Ui.text(this, "You have completed all assigned orders. New accepted deliveries will appear here automatically.", 13, Typeface.NORMAL);
+        copy.setGravity(Gravity.CENTER);
+        copy.setTextColor(Ui.SECONDARY);
+        body.addView(copy);
+        Ui.gap(body, 18);
+        MaterialButton refresh = Ui.button(this, "Check for orders");
+        bindAction(refresh, () -> refreshData(true));
+        body.addView(refresh);
+        card.addView(body);
+        return card;
+    }
+
+    private boolean hasActiveDeliveries() {
+        return !activeOrders.isEmpty();
+    }
+
+    private Dtos.OrderDto selectedActiveOrder() {
+        if (selectedActiveOrderId != null) {
+            for (Dtos.OrderDto order : activeOrders) {
+                if (order != null && selectedActiveOrderId.equals(order.id)) {
+                    activeOrder = order;
+                    return order;
+                }
+            }
+        }
+        if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
+            return activeOrder;
+        }
+        return activeOrders.isEmpty() ? null : activeOrders.get(0);
+    }
+
+    private boolean isActiveOrderId(String orderId) {
+        if (orderId == null) {
+            return false;
+        }
+        for (Dtos.OrderDto order : activeOrders) {
+            if (order != null && orderId.equals(order.id)) {
+                return true;
+            }
+        }
+        return activeOrder != null && orderId.equals(activeOrder.id) && !Dtos.isTerminal(activeOrder);
+    }
+
+    private void replaceActiveOrders(List<Dtos.OrderDto> orders) {
+        activeOrders.clear();
+        Set<String> seen = new HashSet<>();
+        if (orders != null) {
+            for (Dtos.OrderDto order : orders) {
+                if (order == null || order.id == null || Dtos.isTerminal(order) || seen.contains(order.id)) {
+                    continue;
+                }
+                cacheOrderDetails(order);
+                activeOrders.add(order);
+                seen.add(order.id);
+            }
+        }
+        autoSelectActiveOrder();
+    }
+
+    private void upsertActiveOrder(Dtos.OrderDto order) {
+        if (order == null || order.id == null || order.id.trim().isEmpty()) {
+            return;
+        }
+        if (Dtos.isTerminal(order)) {
+            removeActiveOrder(order.id);
+            return;
+        }
+        for (int i = 0; i < activeOrders.size(); i++) {
+            Dtos.OrderDto item = activeOrders.get(i);
+            if (item != null && order.id.equals(item.id)) {
+                cacheOrderDetails(order);
+                activeOrders.set(i, order);
+                autoSelectActiveOrder();
+                return;
+            }
+        }
+        cacheOrderDetails(order);
+        activeOrders.add(order);
+        selectedActiveOrderId = order.id;
+        autoSelectActiveOrder();
+    }
+
+    private void removeActiveOrder(String orderId) {
+        if (orderId == null) {
+            return;
+        }
+        for (int i = activeOrders.size() - 1; i >= 0; i--) {
+            Dtos.OrderDto item = activeOrders.get(i);
+            if (item != null && orderId.equals(item.id)) {
+                activeOrders.remove(i);
+            }
+        }
+        if (orderId.equals(selectedActiveOrderId)) {
+            selectedActiveOrderId = null;
+        }
+        if (orderDetailsSheet != null && orderId.equals(openOrderDetailsId)) {
+            renderOrderDetailsSheet(orderDetailsCache.get(orderId), false, "This order is no longer active. It may have been completed or cancelled.");
+        }
+        autoSelectActiveOrder();
+    }
+
+    private void selectActiveOrder(Dtos.OrderDto order) {
+        if (order == null || order.id == null || Dtos.isTerminal(order)) {
+            return;
+        }
+        selectedActiveOrderId = order.id;
+        activeOrder = order;
+        render();
+    }
+
+    private void openActiveOrderDetails(Dtos.OrderDto order) {
+        if (order == null || order.id == null || order.id.trim().isEmpty()) {
+            Toast.makeText(this, "Order details are not available yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        selectedActiveOrderId = order.id;
+        activeOrder = order;
+        cacheOrderDetails(order);
+        orderDetailsExpanded = false;
+        orderDetailsError = null;
+        openOrderDetailsId = order.id;
+        render();
+        showOrderDetailsSheet(cachedOrderDetails(order.id));
+        fetchOrderDetails(order.id);
+    }
+
+    private void showOrderDetailsSheet(Dtos.OrderDto order) {
+        if (orderDetailsSheet == null) {
+            orderDetailsSheet = new BottomSheetDialog(this);
+            NestedScrollView scroll = new NestedScrollView(this);
+            scroll.setFillViewport(false);
+            scroll.setClipToPadding(false);
+            scroll.setPadding(0, 0, 0, Ui.dp(this, 12));
+            orderDetailsSheetContent = Ui.vertical(this);
+            orderDetailsSheetContent.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 20));
+            orderDetailsSheetContent.setLayoutParams(new NestedScrollView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+            ));
+            scroll.addView(orderDetailsSheetContent);
+            orderDetailsSheet.setContentView(scroll);
+            orderDetailsSheet.setOnDismissListener(dialog -> {
+                orderDetailsSheet = null;
+                orderDetailsSheetContent = null;
+                orderDetailsLoading = false;
+                orderDetailsExpanded = false;
+                orderDetailsError = null;
+                openOrderDetailsId = null;
+            });
+        }
+        renderOrderDetailsSheet(order, orderDetailsLoading, orderDetailsError);
+        if (!orderDetailsSheet.isShowing()) {
+            orderDetailsSheet.show();
+        }
+    }
+
+    private void dismissOrderDetailsSheet() {
+        if (orderDetailsSheet != null) {
+            orderDetailsSheet.dismiss();
+        }
+        orderDetailsSheet = null;
+        orderDetailsSheetContent = null;
+        orderDetailsLoading = false;
+        orderDetailsExpanded = false;
+        orderDetailsError = null;
+        openOrderDetailsId = null;
+    }
+
+    private void fetchOrderDetails(String orderId) {
+        if (repository == null || orderId == null || orderId.trim().isEmpty()) {
+            return;
+        }
+        orderDetailsLoading = true;
+        renderOrderDetailsSheet(cachedOrderDetails(orderId), true, null);
+        repository.orderDetails(orderId, new UiResult<Dtos.OrderDto>() {
+            @Override
+            public void success(Dtos.OrderDto value) {
+                orderDetailsLoading = false;
+                orderDetailsError = null;
+                if (value != null) {
+                    upsertActiveOrder(value);
+                    cacheOrderDetails(value);
+                }
+                if (orderId.equals(openOrderDetailsId)) {
+                    renderOrderDetailsSheet(cachedOrderDetails(orderId), false, null);
+                }
+            }
+
+            @Override
+            public void error(RiderRepository.ApiFailure failure) {
+                orderDetailsLoading = false;
+                orderDetailsError = friendlyFailure(failure, "Could not refresh order details");
+                if (failure != null && failure.unauthorized) {
+                    sessionStore.clear();
+                    showLogin();
+                    return;
+                }
+                if (orderId.equals(openOrderDetailsId)) {
+                    renderOrderDetailsSheet(cachedOrderDetails(orderId), false, orderDetailsError);
+                }
+            }
+        });
+    }
+
+    private void renderOrderDetailsSheet(Dtos.OrderDto order, boolean loading, String error) {
+        if (orderDetailsSheetContent == null) {
+            return;
+        }
+        orderDetailsSheetContent.removeAllViews();
+
+        if (order == null) {
+            orderDetailsSheetContent.addView(Ui.text(this, "Loading order details", 20, Typeface.BOLD));
+            Ui.gap(orderDetailsSheetContent, 12);
+            ProgressBar progress = new ProgressBar(this);
+            progress.setIndeterminate(true);
+            progress.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 36), Ui.dp(this, 36)));
+            orderDetailsSheetContent.addView(progress);
+            return;
+        }
+
+        orderDetailsSheetContent.addView(orderDetailsHeader(order, loading));
+        if (error != null && !error.trim().isEmpty()) {
+            Ui.gap(orderDetailsSheetContent, 10);
+            orderDetailsSheetContent.addView(orderDetailsNotice(error, Ui.ERROR, Color.parseColor("#FEE2E2")));
+        }
+
+        Ui.gap(orderDetailsSheetContent, 12);
+        orderDetailsSheetContent.addView(orderBuyerSection(order));
+        Ui.gap(orderDetailsSheetContent, 12);
+        orderDetailsSheetContent.addView(orderInstructionsSection(order));
+        Ui.gap(orderDetailsSheetContent, 12);
+        orderDetailsSheetContent.addView(orderItemsSection(order, loading));
+        Ui.gap(orderDetailsSheetContent, 12);
+        orderDetailsSheetContent.addView(orderTotalsSection(order));
+        Ui.gap(orderDetailsSheetContent, 14);
+        orderDetailsSheetContent.addView(orderDetailsActions(order));
+    }
+
+    private View orderDetailsHeader(Dtos.OrderDto order, boolean loading) {
+        LinearLayout root = Ui.vertical(this);
+        LinearLayout row = Ui.horizontal(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout titleBlock = Ui.vertical(this);
+        titleBlock.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        titleBlock.addView(Ui.text(this, "Order #" + Dtos.shortOrderId(order), 22, Typeface.BOLD));
+        TextView status = Ui.text(this, Dtos.statusLabel(order.status), 12, Typeface.BOLD);
+        status.setTextColor(statusColor(order.status));
+        status.setPadding(Ui.dp(this, 10), Ui.dp(this, 5), Ui.dp(this, 10), Ui.dp(this, 5));
+        status.setBackground(Ui.roundedBackground(this, statusBackground(order.status), 14));
+        titleBlock.addView(status);
+        row.addView(titleBlock);
+
+        MaterialButton close = Ui.secondaryButton(this, "Close");
+        close.setMinWidth(0);
+        close.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, Ui.dp(this, 40)));
+        bindAction(close, this::dismissOrderDetailsSheet);
+        row.addView(close);
+        root.addView(row);
+
+        if (loading) {
+            Ui.gap(root, 10);
+            LinearLayout refresh = Ui.horizontal(this);
+            refresh.setGravity(Gravity.CENTER_VERTICAL);
+            ProgressBar progress = new ProgressBar(this);
+            progress.setIndeterminate(true);
+            progress.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 24), Ui.dp(this, 24)));
+            refresh.addView(progress);
+            Ui.gap(refresh, 8);
+            TextView copy = Ui.text(this, "Refreshing latest buyer order details...", 12, Typeface.NORMAL);
+            copy.setTextColor(Ui.SECONDARY);
+            refresh.addView(copy);
+            root.addView(refresh);
+        }
+        return root;
+    }
+
+    private View orderBuyerSection(Dtos.OrderDto order) {
+        LinearLayout body = detailSection("Buyer and drop");
+        body.addView(detailRow("Buyer", Dtos.customerName(order)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Address", Dtos.deliveryAddress(order)));
+        if (order.user != null && order.user.phone != null && !order.user.phone.trim().isEmpty()) {
+            Ui.gap(body, 8);
+            body.addView(detailRow("Phone", order.user.phone.trim()));
+        }
+        return body;
+    }
+
+    private View orderInstructionsSection(Dtos.OrderDto order) {
+        String instructions = orderInstructions(order);
+        int background = instructions.isEmpty() ? Ui.INPUT_BG : Color.parseColor("#FFF7ED");
+        int accent = instructions.isEmpty() ? Ui.SECONDARY : Color.parseColor("#C2410C");
+        LinearLayout body = detailSection("Delivery notes");
+        TextView note = Ui.text(
+                this,
+                instructions.isEmpty() ? "No buyer delivery notes provided." : instructions,
+                13,
+                instructions.isEmpty() ? Typeface.NORMAL : Typeface.BOLD
+        );
+        note.setTextColor(accent);
+        note.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        note.setBackground(Ui.strokedBackground(this, background, instructions.isEmpty() ? Ui.DEFAULT_BORDER : Color.parseColor("#FDBA74"), 12));
+        body.addView(note);
+        return body;
+    }
+
+    private View orderItemsSection(Dtos.OrderDto order, boolean loading) {
+        List<Dtos.OrderItemDto> items = order.items == null ? new ArrayList<>() : order.items;
+        LinearLayout body = detailSection("Items to verify");
+        TextView summary = Ui.text(this, items.size() + " products • " + totalItemQuantity(items) + " units", 12, Typeface.BOLD);
+        summary.setTextColor(Ui.PRIMARY);
+        body.addView(summary);
+        Ui.gap(body, 10);
+
+        if (items.isEmpty()) {
+            body.addView(orderDetailsNotice(
+                    loading ? "Loading buyer item details..." : "Item details are unavailable offline. They will refresh automatically when the network returns.",
+                    Ui.SECONDARY,
+                    Ui.INPUT_BG
+            ));
+            return body;
+        }
+
+        int visibleCount = orderDetailsExpanded ? items.size() : Math.min(items.size(), 6);
+        for (int i = 0; i < visibleCount; i++) {
+            if (i > 0) {
+                Ui.gap(body, 8);
+            }
+            body.addView(orderItemRow(items.get(i)));
+        }
+
+        if (items.size() > visibleCount) {
+            Ui.gap(body, 10);
+            MaterialButton showAll = Ui.secondaryButton(this, "Show all " + items.size() + " items");
+            bindAction(showAll, () -> {
+                orderDetailsExpanded = true;
+                renderOrderDetailsSheet(order, orderDetailsLoading, orderDetailsError);
+            });
+            body.addView(showAll);
+        }
+        return body;
+    }
+
+    private View orderItemRow(Dtos.OrderItemDto item) {
+        LinearLayout row = Ui.horizontal(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
+        row.setBackground(Ui.strokedBackground(this, Ui.CARD, Ui.DEFAULT_BORDER, 14));
+
+        TextView qty = Ui.text(this, "x" + Math.max(0, item == null ? 0 : item.quantity), 14, Typeface.BOLD);
+        qty.setTextColor(Ui.PRIMARY);
+        qty.setGravity(Gravity.CENTER);
+        qty.setBackground(Ui.roundedBackground(this, Ui.PRIMARY_LIGHT, 16));
+        qty.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        row.addView(qty);
+        Ui.gap(row, 12);
+
+        LinearLayout copy = Ui.vertical(this);
+        copy.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        copy.addView(Ui.text(this, itemProductName(item), 14, Typeface.BOLD));
+        String meta = itemProductMeta(item);
+        if (!meta.isEmpty()) {
+            TextView metaView = Ui.text(this, meta, 12, Typeface.NORMAL);
+            metaView.setTextColor(Ui.SECONDARY);
+            copy.addView(metaView);
+        }
+        TextView price = Ui.text(this, itemLineTotal(item), 12, Typeface.BOLD);
+        price.setTextColor(Ui.PRIMARY);
+        copy.addView(price);
+        row.addView(copy);
+        return row;
+    }
+
+    private View orderTotalsSection(Dtos.OrderDto order) {
+        LinearLayout body = detailSection("Order summary");
+        body.addView(detailRow("Item subtotal", moneyLabel(order == null ? null : order.subtotalAmount)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Delivery fee", moneyLabel(order == null ? null : order.deliveryFee)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Buyer order total", moneyLabel(order == null ? null : order.totalAmount)));
+        return body;
+    }
+
+    private View orderDetailsActions(Dtos.OrderDto order) {
+        LinearLayout buttons = Ui.horizontal(this);
+        MaterialButton navigate = Ui.button(this, "Navigate");
+        navigate.setLayoutParams(weightedButtonParams());
+        bindAction(navigate, () -> openNavigation(order));
+        MaterialButton preview = Ui.secondaryButton(this, "Preview");
+        preview.setLayoutParams(weightedButtonParams());
+        bindAction(preview, () -> openRoutePreview(order));
+        buttons.addView(navigate);
+        Ui.gap(buttons, 8);
+        buttons.addView(preview);
+        return buttons;
+    }
+
+    private LinearLayout detailSection(String title) {
+        LinearLayout body = Ui.vertical(this);
+        body.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14));
+        body.setBackground(Ui.strokedBackground(this, Ui.CARD, Ui.DEFAULT_BORDER, 16));
+        body.addView(Ui.text(this, title, 15, Typeface.BOLD));
+        Ui.gap(body, 10);
+        return body;
+    }
+
+    private View detailRow(String label, String value) {
+        LinearLayout row = Ui.horizontal(this);
+        row.setGravity(Gravity.TOP);
+        TextView left = Ui.text(this, label, 12, Typeface.BOLD);
+        left.setTextColor(Ui.MUTED);
+        left.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.36f));
+        TextView right = Ui.text(this, value == null || value.trim().isEmpty() ? "Not available" : value.trim(), 13, Typeface.NORMAL);
+        right.setTextColor(Ui.HEADING);
+        right.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.64f));
+        row.addView(left);
+        row.addView(right);
+        return row;
+    }
+
+    private View orderDetailsNotice(String value, int textColor, int backgroundColor) {
+        TextView notice = Ui.text(this, value, 13, Typeface.NORMAL);
+        notice.setTextColor(textColor);
+        notice.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        notice.setBackground(Ui.strokedBackground(this, backgroundColor, Ui.DEFAULT_BORDER, 12));
+        return notice;
+    }
+
+    private void cacheOrderDetails(Dtos.OrderDto order) {
+        if (order == null || order.id == null || order.id.trim().isEmpty()) {
+            return;
+        }
+        orderDetailsCache.put(order.id, order);
+        if (order.id.equals(openOrderDetailsId) && orderDetailsSheetContent != null && !orderDetailsLoading) {
+            renderOrderDetailsSheet(order, false, orderDetailsError);
+        }
+    }
+
+    private Dtos.OrderDto cachedOrderDetails(String orderId) {
+        if (orderId == null) {
+            return null;
+        }
+        Dtos.OrderDto cached = orderDetailsCache.get(orderId);
+        if (cached != null) {
+            return cached;
+        }
+        for (Dtos.OrderDto order : activeOrders) {
+            if (order != null && orderId.equals(order.id)) {
+                return order;
+            }
+        }
+        return activeOrder != null && orderId.equals(activeOrder.id) ? activeOrder : null;
+    }
+
+    private int totalItemQuantity(List<Dtos.OrderItemDto> items) {
+        int total = 0;
+        for (Dtos.OrderItemDto item : items) {
+            total += Math.max(0, item == null ? 0 : item.quantity);
+        }
+        return total;
+    }
+
+    private String itemProductName(Dtos.OrderItemDto item) {
+        if (item != null && item.product != null && item.product.name != null && !item.product.name.trim().isEmpty()) {
+            return item.product.name.trim();
+        }
+        return "Product " + (item == null || item.productId == null ? "" : item.productId);
+    }
+
+    private String itemProductMeta(Dtos.OrderItemDto item) {
+        List<String> parts = new ArrayList<>();
+        if (item != null && item.product != null) {
+            if (item.product.unit != null && !item.product.unit.trim().isEmpty()) {
+                parts.add("Unit: " + item.product.unit.trim());
+            }
+            if (item.product.category != null && !item.product.category.trim().isEmpty()) {
+                parts.add("Category: " + Dtos.statusLabel(item.product.category));
+            }
+        }
+        return String.join(" / ", parts);
+    }
+
+    private String itemLineTotal(Dtos.OrderItemDto item) {
+        double unitPrice = parseMoney(item == null ? null : item.priceApplied);
+        int quantity = Math.max(0, item == null ? 0 : item.quantity);
+        if (unitPrice <= 0d || quantity <= 0) {
+            return "Line total pending";
+        }
+        return "Line total " + moneyLabel(String.valueOf(unitPrice * quantity));
+    }
+
+    private String moneyLabel(String raw) {
+        double value = parseMoney(raw);
+        return String.format(Locale.US, "Rs %.2f", value);
+    }
+
+    private double parseMoney(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return 0d;
+        }
+        try {
+            return Double.parseDouble(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return 0d;
+        }
+    }
+
+    private String orderInstructions(Dtos.OrderDto order) {
+        String notes = addressString(order, "deliveryNotes", "deliveryNote", "buyerNotes", "specialInstructions", "instructions", "notes");
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+        String landmark = addressString(order, "landmark");
+        return landmark.isEmpty() ? "" : "Landmark: " + landmark;
+    }
+
+    private String addressString(Dtos.OrderDto order, String... keys) {
+        try {
+            if (order == null || order.addressSnapshot == null || !order.addressSnapshot.isJsonObject()) {
+                return "";
+            }
+            JsonObject object = order.addressSnapshot.getAsJsonObject();
+            for (String key : keys) {
+                if (object.has(key) && !object.get(key).isJsonNull()) {
+                    String value = object.get(key).getAsString();
+                    if (value != null && !value.trim().isEmpty()) {
+                        return value.trim();
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return "";
+    }
+
+    private int statusColor(String status) {
+        if ("DELIVERED".equals(status)) {
+            return Ui.SUCCESS;
+        }
+        if ("CANCELLED".equals(status)) {
+            return Ui.ERROR;
+        }
+        if ("PICKED_UP".equals(status) || "OUT_FOR_DELIVERY".equals(status)) {
+            return Color.parseColor("#EA580C");
+        }
+        return Ui.PRIMARY;
+    }
+
+    private int statusBackground(String status) {
+        if ("DELIVERED".equals(status)) {
+            return Ui.SUCCESS_BG;
+        }
+        if ("CANCELLED".equals(status)) {
+            return Color.parseColor("#FEE2E2");
+        }
+        if ("PICKED_UP".equals(status) || "OUT_FOR_DELIVERY".equals(status)) {
+            return Color.parseColor("#FFEDD5");
+        }
+        return Ui.PRIMARY_LIGHT;
+    }
+
+    private void autoSelectActiveOrder() {
+        if (activeOrders.isEmpty()) {
+            selectedActiveOrderId = null;
+            activeOrder = null;
+            return;
+        }
+        if (selectedActiveOrderId != null) {
+            for (Dtos.OrderDto order : activeOrders) {
+                if (order != null && selectedActiveOrderId.equals(order.id)) {
+                    activeOrder = order;
+                    return;
+                }
+            }
+        }
+        selectedActiveOrderId = nearestActiveOrderId();
+        activeOrder = selectedActiveOrder();
+    }
+
+    private String nearestActiveOrderId() {
+        if (activeOrders.isEmpty()) {
+            return null;
+        }
+        Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+        Dtos.Coordinates origin = Dtos.coordinates(localRider == null ? null : localRider.currentLocation);
+        if (origin == null) {
+            return activeOrders.get(0).id;
+        }
+        Dtos.OrderDto best = activeOrders.get(0);
+        double bestDistance = Double.MAX_VALUE;
+        for (Dtos.OrderDto order : activeOrders) {
+            Dtos.Coordinates drop = Dtos.coordinates(order == null ? null : order.addressSnapshot);
+            if (drop == null) {
+                continue;
+            }
+            double distance = distanceKm(origin.lat, origin.lng, drop.lat, drop.lng);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = order;
+            }
+        }
+        return best == null ? null : best.id;
+    }
+
+    private void subscribeActiveOrders() {
+        for (Dtos.OrderDto order : activeOrders) {
+            if (order != null && order.id != null) {
+                socketManager.subscribeOrder(order.id);
+            }
+        }
+    }
+
     private String offerDistanceFallback(Dtos.OrderDto order) {
         try {
             if (order == null || order.addressSnapshot == null || !order.addressSnapshot.isJsonObject()) {
@@ -1852,13 +3153,20 @@ public final class MainActivity extends AppCompatActivity {
         return body;
     }
 
+    private int statusBarHeight() {
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    }
+
     private View homeStatusCard() {
         MaterialCardView card = Ui.card(this);
         LinearLayout body = Ui.vertical(this);
         body.addView(Ui.text(this, "Today at a glance", 17, Typeface.BOLD));
         int availableCount = availableOrders == null ? 0 : availableOrders.total;
-        String active = activeOrder != null && !Dtos.isTerminal(activeOrder)
-                ? "Active delivery #" + Dtos.shortOrderId(activeOrder)
+        Dtos.OrderDto selected = selectedActiveOrder();
+        String active = hasActiveDeliveries()
+                ? activeOrders.size() + " active " + (activeOrders.size() == 1 ? "delivery" : "deliveries")
+                + (selected == null ? "" : " • selected #" + Dtos.shortOrderId(selected))
                 : "No active delivery";
         body.addView(Ui.text(this, active, 13, Typeface.NORMAL));
         body.addView(Ui.text(this, availableCount + " available orders nearby", 13, Typeface.NORMAL));
@@ -1919,9 +3227,9 @@ public final class MainActivity extends AppCompatActivity {
         bottomNav.removeAllViews();
         bottomNav.setBackground(glassNavBackground());
         bottomNav.addView(bottomNavItem(MainTab.HOME, "Home", R.drawable.ic_nav_home));
+        bottomNav.addView(bottomNavItem(MainTab.TRACKING, "Tracking", R.drawable.ic_nav_tracking));
         bottomNav.addView(bottomNavItem(MainTab.ORDERS, "Orders", R.drawable.ic_nav_orders));
-        bottomNav.addView(bottomNavItem(MainTab.ALERTS, "Alerts", R.drawable.ic_nav_alerts));
-        bottomNav.addView(bottomNavItem(MainTab.ACCOUNT, "Account", R.drawable.ic_nav_account));
+        bottomNav.addView(bottomNavItem(MainTab.ACCOUNT, "Profile", R.drawable.ic_nav_account));
     }
 
     private View bottomNavItem(MainTab tab, String label, int iconRes) {
@@ -2072,10 +3380,15 @@ public final class MainActivity extends AppCompatActivity {
 
     private View activeOrderCard(Dtos.OrderDto order) {
         MaterialCardView card = Ui.card(this);
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(v -> openActiveOrderDetails(order));
         LinearLayout body = Ui.vertical(this);
         body.addView(Ui.text(this, "Active delivery #" + Dtos.shortOrderId(order), 18, Typeface.BOLD));
+        body.addView(Ui.text(this, "Customer: " + Dtos.customerName(order), 13, Typeface.NORMAL));
         body.addView(Ui.text(this, "Status: " + Dtos.statusLabel(order.status), 13, Typeface.NORMAL));
         body.addView(Ui.text(this, "Drop: " + Dtos.deliveryAddress(order), 14, Typeface.NORMAL));
+        body.addView(Ui.text(this, "Route: " + offerDistanceEta(order), 13, Typeface.BOLD));
         body.addView(Ui.text(this, "Payout: " + Dtos.payout(order), 14, Typeface.BOLD));
         Ui.gap(body, 8);
 
@@ -2086,6 +3399,10 @@ public final class MainActivity extends AppCompatActivity {
         MaterialButton preview = Ui.button(this, "Preview route");
         bindAction(preview, () -> openRoutePreview(order));
         body.addView(preview);
+
+        MaterialButton details = Ui.secondaryButton(this, "View buyer order details");
+        bindAction(details, () -> openActiveOrderDetails(order));
+        body.addView(details);
 
         String next = Dtos.nextRiderStatus(order);
         if (next != null) {
@@ -2179,21 +3496,54 @@ public final class MainActivity extends AppCompatActivity {
         }
         refreshActiveOrder();
         refreshAvailableOrders(false);
+        refreshPerformanceSnapshot(visible);
+    }
+
+    private void refreshPerformanceSnapshot(boolean force) {
+        if (performanceRefreshInFlight || repository == null || sessionStore == null || !sessionStore.isLoggedIn()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!force && performanceSnapshot != null && now - lastPerformanceRefreshAtMs < PERFORMANCE_REFRESH_MS) {
+            return;
+        }
+        performanceRefreshInFlight = true;
+        repository.orderHistory("all_time", 1, 12, new UiResult<Dtos.RiderOrderHistoryResponse>() {
+            @Override
+            public void success(Dtos.RiderOrderHistoryResponse value) {
+                performanceRefreshInFlight = false;
+                performanceSnapshot = value;
+                lastPerformanceRefreshAtMs = System.currentTimeMillis();
+                if (activeMainTab == MainTab.HOME) {
+                    render();
+                }
+            }
+
+            @Override
+            public void error(RiderRepository.ApiFailure failure) {
+                performanceRefreshInFlight = false;
+                if (failure != null && failure.unauthorized) {
+                    sessionStore.clear();
+                    showLogin();
+                }
+            }
+        });
     }
 
     private void refreshActiveOrder() {
-        repository.activeOrder(new UiResult<Dtos.OrderDto>() {
+        repository.activeOrders(new UiResult<List<Dtos.OrderDto>>() {
             @Override
-            public void success(Dtos.OrderDto value) {
-                activeOrder = value;
+            public void success(List<Dtos.OrderDto> value) {
+                replaceActiveOrders(value);
                 lastError = null;
-                if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
-                    socketManager.subscribeOrder(activeOrder.id);
+                if (hasActiveDeliveries()) {
+                    subscribeActiveOrders();
                     maybeStartTracking();
                 } else {
                     RiderLocationService.stop(MainActivity.this);
                 }
                 render();
+                focusTargetOrderIfNeeded();
             }
 
             @Override
@@ -2253,9 +3603,12 @@ public final class MainActivity extends AppCompatActivity {
         repository.claimOrder(orderId, new UiResult<Dtos.OrderDto>() {
             @Override
             public void success(Dtos.OrderDto value) {
-                activeOrder = value;
+                upsertActiveOrder(value);
+                activeMainTab = MainTab.TRACKING;
                 Toast.makeText(MainActivity.this, "Order assigned", Toast.LENGTH_SHORT).show();
-                socketManager.subscribeOrder(value.id);
+                if (value != null && value.id != null) {
+                    socketManager.subscribeOrder(value.id);
+                }
                 maybeStartTracking();
                 refreshData(false);
             }
@@ -2304,10 +3657,18 @@ public final class MainActivity extends AppCompatActivity {
         repository.patchDeliveryStatus(order.id, nextStatus, new UiResult<Dtos.OrderDto>() {
             @Override
             public void success(Dtos.OrderDto value) {
-                activeOrder = value;
                 if (Dtos.isTerminal(value)) {
-                    RiderLocationService.stop(MainActivity.this);
+                    removeActiveOrder(value.id);
+                    if (!hasActiveDeliveries()) {
+                        RiderLocationService.stop(MainActivity.this);
+                    }
+                } else {
+                    upsertActiveOrder(value);
                 }
+                if (activeMainTab == MainTab.HOME && hasActiveDeliveries()) {
+                    activeMainTab = MainTab.TRACKING;
+                }
+                render();
                 refreshData(false);
             }
 
@@ -2480,7 +3841,7 @@ public final class MainActivity extends AppCompatActivity {
         if (!resumed || content == null || sessionStore == null || !sessionStore.isLoggedIn()) {
             return false;
         }
-        if (activeOrder != null && !Dtos.isTerminal(activeOrder)) {
+        if (hasActiveDeliveries()) {
             return false;
         }
         Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
@@ -2528,7 +3889,7 @@ public final class MainActivity extends AppCompatActivity {
 
             @Override
             public void onOrderChanged() {
-                runOnUiThread(MainActivity.this::refreshActiveOrder);
+                runOnUiThread(MainActivity.this::scheduleActiveOrdersRefresh);
             }
 
             @Override
@@ -2542,8 +3903,16 @@ public final class MainActivity extends AppCompatActivity {
         socketManager.connect(sessionStore.accessToken());
     }
 
+    private void scheduleActiveOrdersRefresh() {
+        if (activeOrdersRefreshScheduled) {
+            return;
+        }
+        activeOrdersRefreshScheduled = true;
+        handler.postDelayed(activeOrdersSocketRefresh, ACTIVE_ORDERS_SOCKET_REFRESH_DELAY_MS);
+    }
+
     private void maybeStartTracking() {
-        if (activeOrder == null || Dtos.isTerminal(activeOrder)) {
+        if (!hasActiveDeliveries()) {
             RiderLocationService.stop(this);
             return;
         }
@@ -2845,6 +4214,10 @@ public final class MainActivity extends AppCompatActivity {
             return;
         }
         Dtos.Coordinates riderLocation = order.rider == null ? null : Dtos.coordinates(order.rider.currentLocation);
+        if (riderLocation == null) {
+            Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+            riderLocation = Dtos.coordinates(localRider == null ? null : localRider.currentLocation);
+        }
         Intent intent = new Intent(this, RoutePreviewActivity.class)
                 .putExtra(RoutePreviewActivity.EXTRA_DEST_LAT, drop.lat)
                 .putExtra(RoutePreviewActivity.EXTRA_DEST_LNG, drop.lng)
@@ -2860,8 +4233,19 @@ public final class MainActivity extends AppCompatActivity {
         if (targetOrderId == null || targetOrderId.trim().isEmpty()) {
             return;
         }
+        for (Dtos.OrderDto order : activeOrders) {
+            if (order != null && targetOrderId.equals(order.id)) {
+                selectedActiveOrderId = order.id;
+                activeOrder = order;
+                activeMainTab = MainTab.TRACKING;
+                render();
+                Toast.makeText(this, "Opened active order " + Dtos.shortOrderId(order), Toast.LENGTH_SHORT).show();
+                targetOrderId = null;
+                return;
+            }
+        }
         if (activeOrder != null && targetOrderId.equals(activeOrder.id)) {
-            activeMainTab = MainTab.HOME;
+            activeMainTab = MainTab.TRACKING;
             render();
             Toast.makeText(this, "Opened active order " + Dtos.shortOrderId(activeOrder), Toast.LENGTH_SHORT).show();
             targetOrderId = null;

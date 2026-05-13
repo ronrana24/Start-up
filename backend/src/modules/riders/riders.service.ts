@@ -115,6 +115,11 @@ export class RidersService {
     return this.activeOrderForRiderId(rider.id);
   }
 
+  async activeOrders(user: User) {
+    const rider = await this.riderForUser(user);
+    return this.activeOrdersForRiderId(rider.id);
+  }
+
   async orderHistory(
     user: User,
     params: { period?: OrderListPeriod; page: number; pageSize: number },
@@ -208,6 +213,21 @@ export class RidersService {
     };
   }
 
+  async orderDetails(user: User, orderId: string) {
+    const rider = await this.riderForUser(user);
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        riderId: rider.id,
+      },
+      include: deliveryOrderInclude,
+    });
+    if (!order) {
+      throw new NotFoundException('Assigned order not found');
+    }
+    return order;
+  }
+
   async registerDevice(user: User, dto: RegisterRiderDeviceDto) {
     const rider = await this.riderForUser(user);
     return this.prisma.riderDevice.upsert({
@@ -232,17 +252,6 @@ export class RidersService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const activeOrder = await tx.order.findFirst({
-          where: {
-            riderId: rider.id,
-            status: { notIn: activeOrderTerminalStatuses },
-          },
-          select: { id: true },
-        });
-        if (activeOrder) {
-          throw new ConflictException('Rider already has an active order');
-        }
-
         const existing = await tx.order.findUnique({
           where: { id: orderId },
           select: { id: true, riderId: true, status: true },
@@ -318,12 +327,12 @@ export class RidersService {
       where: { id: rider.id },
       data: { currentLocation: location },
     });
-    const activeOrder = await this.activeOrderForRiderId(rider.id);
+    const activeOrders = await this.activeOrdersForRiderId(rider.id);
     this.deliveryEvents.riderLocationUpdated({
       riderId: rider.id,
-      orderId: activeOrder?.id,
+      orderIds: activeOrders.map((order) => order.id),
       location,
-      order: activeOrder,
+      orders: activeOrders,
     });
     return updated;
   }
@@ -355,12 +364,12 @@ export class RidersService {
       where: { id },
       data: { currentLocation: location },
     });
-    const activeOrder = await this.activeOrderForRiderId(id);
+    const activeOrders = await this.activeOrdersForRiderId(id);
     this.deliveryEvents.riderLocationUpdated({
       riderId: id,
-      orderId: activeOrder?.id,
+      orderIds: activeOrders.map((order) => order.id),
       location,
-      order: activeOrder,
+      orders: activeOrders,
     });
     return rider;
   }
@@ -429,6 +438,17 @@ export class RidersService {
         status: { notIn: activeOrderTerminalStatuses },
       },
       orderBy: { updatedAt: 'desc' },
+      include: deliveryOrderInclude,
+    });
+  }
+
+  private activeOrdersForRiderId(riderId: string) {
+    return this.prisma.order.findMany({
+      where: {
+        riderId,
+        status: { notIn: activeOrderTerminalStatuses },
+      },
+      orderBy: [{ deliveryType: 'desc' }, { updatedAt: 'asc' }],
       include: deliveryOrderInclude,
     });
   }

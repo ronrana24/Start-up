@@ -106,7 +106,8 @@ public final class DeliverySocketManager {
             if (events != null) events.onOrderChanged();
         });
         boundSocket.on("rider.location_updated", args -> {
-            if (events != null) events.onOrderChanged();
+            // Location pings are high-frequency and already originate from this rider.
+            // Refetching active orders here creates a location -> socket -> active-list loop.
         });
         boundSocket.on("rider.availability_changed", args -> {
             if (events != null) events.onOrderChanged();

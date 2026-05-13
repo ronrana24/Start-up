@@ -22,6 +22,7 @@ const LOCATION_REFETCH_MS = 30000;
 
 type RiderLocationPayload = {
   orderId?: string;
+  orderIds?: string[];
   location?: {
     lat?: number;
     lng?: number;
@@ -38,6 +39,15 @@ function isRiderLocationPayload(value: unknown): value is RiderLocationPayload {
     typeof location.lng === "number" &&
     Number.isFinite(location.lat) &&
     Number.isFinite(location.lng)
+  );
+}
+
+function payloadIncludesOrder(
+  payload: RiderLocationPayload,
+  orderId: string,
+): boolean {
+  return (
+    payload.orderId === orderId || payload.orderIds?.includes(orderId) === true
   );
 }
 
@@ -71,7 +81,10 @@ export function OrderTrackingScreen() {
       void refetch();
     };
     const applyLocationUpdate = (payload: unknown) => {
-      if (!isRiderLocationPayload(payload) || payload.orderId !== orderId) {
+      if (
+        !isRiderLocationPayload(payload) ||
+        !payloadIncludesOrder(payload, orderId)
+      ) {
         return;
       }
 

@@ -54,16 +54,28 @@ export class DeliveryEventsService {
   riderLocationUpdated(input: {
     riderId: string;
     orderId?: string;
+    orderIds?: string[];
     location: { lat: number; lng: number; heading?: number | null };
-    order?: unknown;
+    order?: DeliveryOrderPayload;
+    orders?: DeliveryOrderPayload[];
   }) {
-    const rooms = ['admin', `rider:${input.riderId}`];
-    if (input.orderId) {
-      rooms.push(`order:${input.orderId}`);
-    }
-    this.gateway.emitToRooms(rooms, 'rider.location_updated', input);
-    if (input.order) {
-      this.gateway.emitToRooms(rooms, 'order.updated', input.order);
+    const orderIds = input.orderIds ?? (input.orderId ? [input.orderId] : []);
+    this.gateway.emitToRooms(
+      ['admin', `rider:${input.riderId}`],
+      'rider.location_updated',
+      {
+        riderId: input.riderId,
+        orderIds,
+        location: input.location,
+      },
+    );
+    for (const orderId of orderIds) {
+      this.gateway.emitToRooms([`order:${orderId}`], 'rider.location_updated', {
+        riderId: input.riderId,
+        orderId,
+        orderIds: [orderId],
+        location: input.location,
+      });
     }
   }
 

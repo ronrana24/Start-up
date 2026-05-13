@@ -333,7 +333,14 @@ export class OrdersService {
         (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED) &&
         order.riderId
       ) {
-        if (order.riderId) {
+        const remainingActiveOrders = await tx.order.count({
+          where: {
+            riderId: order.riderId,
+            id: { not: orderId },
+            status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] },
+          },
+        });
+        if (remainingActiveOrders === 0) {
           await tx.rider.update({
             where: { id: order.riderId },
             data: { status: RiderStatus.IDLE },
@@ -367,9 +374,16 @@ export class OrdersService {
         order.riderId &&
         (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED)
       ) {
+        const remainingActiveOrders = await this.prisma.order.count({
+          where: {
+            riderId: order.riderId,
+            id: { not: orderId },
+            status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] },
+          },
+        });
         this.deliveryEvents.riderAvailabilityChanged({
           riderId: order.riderId,
-          available: true,
+          available: remainingActiveOrders === 0,
           reason: 'order_terminal',
         });
       }
@@ -409,10 +423,19 @@ export class OrdersService {
 
     await this.prisma.$transaction(async (tx) => {
       if (order.riderId && order.riderId !== riderId) {
-        await tx.rider.update({
-          where: { id: order.riderId },
-          data: { status: RiderStatus.IDLE },
+        const oldRiderActiveOrders = await tx.order.count({
+          where: {
+            riderId: order.riderId,
+            id: { not: orderId },
+            status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] },
+          },
         });
+        if (oldRiderActiveOrders === 0) {
+          await tx.rider.update({
+            where: { id: order.riderId },
+            data: { status: RiderStatus.IDLE },
+          });
+        }
       }
       await tx.rider.update({
         where: { id: riderId },
@@ -430,9 +453,16 @@ export class OrdersService {
     });
     if (updated) {
       if (order.riderId && order.riderId !== riderId) {
+        const oldRiderActiveOrders = await this.prisma.order.count({
+          where: {
+            riderId: order.riderId,
+            id: { not: orderId },
+            status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] },
+          },
+        });
         this.deliveryEvents.riderAvailabilityChanged({
           riderId: order.riderId,
-          available: true,
+          available: oldRiderActiveOrders === 0,
           reason: 'order_reassigned',
         });
       }

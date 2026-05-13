@@ -56,6 +56,12 @@ export class RidersController {
     return this.riders.activeOrder(user);
   }
 
+  @Get('orders/active-list')
+  @Roles(UserRole.RIDER)
+  activeOrders(@CurrentUser() user: User) {
+    return this.riders.activeOrders(user);
+  }
+
   @Get('orders/history')
   @Roles(UserRole.RIDER)
   orderHistory(
@@ -67,6 +73,12 @@ export class RidersController {
       page: query.page ?? 1,
       pageSize: query.pageSize ?? 20,
     });
+  }
+
+  @Get('orders/:id')
+  @Roles(UserRole.RIDER)
+  orderDetails(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.riders.orderDetails(user, id);
   }
 
   @Post('devices')

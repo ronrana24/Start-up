@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
 
 import retrofit2.Call;
@@ -138,8 +139,16 @@ public final class RiderRepository {
         enqueue(api.activeOrder(), result);
     }
 
+    public void activeOrders(Result<List<Dtos.OrderDto>> result) {
+        enqueue(api.activeOrders(), result);
+    }
+
     public void orderHistory(String period, int page, int pageSize, Result<Dtos.RiderOrderHistoryResponse> result) {
         enqueue(api.orderHistory(period, page, pageSize), result);
+    }
+
+    public void orderDetails(String orderId, Result<Dtos.OrderDto> result) {
+        enqueue(api.orderDetails(orderId), result);
     }
 
     public void registerDevice(String token, Result<Object> result) {

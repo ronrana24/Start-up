@@ -204,12 +204,15 @@ public final class Dtos {
         public String name;
         public String category;
         public String unit;
+        public List<String> imageUrls = new ArrayList<>();
     }
 
     public static final class OrderItemDto {
+        public String id;
         public String productId;
         public int quantity;
         public String priceApplied;
+        public JsonElement pricingSnapshot;
         public ProductDto product;
     }
 
@@ -223,6 +226,7 @@ public final class Dtos {
         public String totalAmount;
         public JsonElement addressSnapshot;
         public RiderDto rider;
+        public UserDto user;
         public String createdAt;
         public String updatedAt;
         public List<OrderItemDto> items = new ArrayList<>();
@@ -274,6 +278,22 @@ public final class Dtos {
 
     public static String deliveryAddress(OrderDto order) {
         return addressLabel(order == null ? null : order.addressSnapshot);
+    }
+
+    public static String customerName(OrderDto order) {
+        if (order == null || order.user == null) {
+            return "Customer";
+        }
+        if (order.user.businessName != null && !order.user.businessName.trim().isEmpty()) {
+            return order.user.businessName.trim();
+        }
+        if (order.user.name != null && !order.user.name.trim().isEmpty()) {
+            return order.user.name.trim();
+        }
+        if (order.user.phone != null && !order.user.phone.trim().isEmpty()) {
+            return order.user.phone.trim();
+        }
+        return "Customer";
     }
 
     public static String addressLabel(JsonElement value) {

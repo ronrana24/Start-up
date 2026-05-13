@@ -1,5 +1,7 @@
 package com.startup.rider.data;
 
+import java.util.List;
+
 import retrofit2.Call;
 import retrofit2.http.Body;
 import retrofit2.http.GET;
@@ -48,12 +50,18 @@ public interface RiderApi {
     @GET("/api/riders/orders/active")
     Call<Dtos.Envelope<Dtos.OrderDto>> activeOrder();
 
+    @GET("/api/riders/orders/active-list")
+    Call<Dtos.Envelope<List<Dtos.OrderDto>>> activeOrders();
+
     @GET("/api/riders/orders/history")
     Call<Dtos.Envelope<Dtos.RiderOrderHistoryResponse>> orderHistory(
             @Query("period") String period,
             @Query("page") int page,
             @Query("pageSize") int pageSize
     );
+
+    @GET("/api/riders/orders/{orderId}")
+    Call<Dtos.Envelope<Dtos.OrderDto>> orderDetails(@Path("orderId") String orderId);
 
     @POST("/api/riders/devices")
     Call<Dtos.Envelope<Object>> registerDevice(@Body Dtos.RegisterDeviceRequest request);
