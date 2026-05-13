@@ -1,10 +1,11 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { validationDetailsFromErrors } from './common/errors/api-error';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
 import Configuration from './config/configuration';
 
@@ -39,6 +40,13 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
+      validationError: { target: false, value: false },
+      exceptionFactory: (errors) =>
+        new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: 'Please check the highlighted fields and try again.',
+          details: validationDetailsFromErrors(errors),
+        }),
     }),
   );
   const port = config.port;

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { HEALTH_MODULE_VALUES, HealthModuleId } from './health.constants';
@@ -19,6 +19,8 @@ export interface AggregateHealthResult {
 
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
@@ -101,9 +103,12 @@ export class HealthService {
       await this.prisma.$queryRaw`SELECT 1`;
       return { ok: true };
     } catch (e) {
-      const message =
-        e instanceof Error ? e.message : 'Database connectivity check failed';
-      return { ok: false, error: message };
+      if (e instanceof Error) {
+        this.logger.error('Database connectivity check failed', e.stack);
+      } else {
+        this.logger.error('Database connectivity check failed', String(e));
+      }
+      return { ok: false, error: 'Database connectivity check failed' };
     }
   }
 }

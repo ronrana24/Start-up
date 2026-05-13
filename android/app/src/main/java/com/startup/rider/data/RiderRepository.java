@@ -305,17 +305,29 @@ public final class RiderRepository {
             }
             if (element.isJsonObject()) {
                 JsonObject object = element.getAsJsonObject();
+                String message = object.has("message") ? messageFromJson(object.get("message")) : null;
+                String details = object.has("details") ? messageFromJson(object.get("details")) : null;
+                if (isGenericValidationMessage(message) && details != null && !details.trim().isEmpty()) {
+                    return details;
+                }
+                if (message != null && !message.trim().isEmpty()) {
+                    return message;
+                }
                 String error = object.has("error") ? messageFromJson(object.get("error")) : null;
                 if (error != null && !error.trim().isEmpty()) {
                     return error;
                 }
-                String message = object.has("message") ? messageFromJson(object.get("message")) : null;
-                if (message != null && !message.trim().isEmpty()) {
-                    return message;
+                if (details != null && !details.trim().isEmpty()) {
+                    return details;
                 }
                 return object.has("data") ? messageFromJson(object.get("data")) : null;
             }
             return null;
+        }
+
+        private static boolean isGenericValidationMessage(String message) {
+            return "Please check the highlighted fields and try again.".equals(message)
+                    || "Please check your request and try again.".equals(message);
         }
     }
 }

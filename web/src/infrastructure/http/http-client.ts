@@ -23,13 +23,26 @@ function messageFromUnknown(value: unknown): string | null {
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
+    const message = messageFromUnknown(record.message);
+    const details = messageFromUnknown(record.details);
+    if (details && isGenericValidationMessage(message)) {
+      return details;
+    }
     return (
+      message ??
       messageFromUnknown(record.error) ??
-      messageFromUnknown(record.message) ??
+      details ??
       messageFromUnknown(record.data)
     );
   }
   return null;
+}
+
+function isGenericValidationMessage(message: string | null): boolean {
+  return (
+    message === "Please check the highlighted fields and try again." ||
+    message === "Please check your request and try again."
+  );
 }
 
 export async function readApiErrorMessage(res: Response): Promise<string> {
