@@ -1,0 +1,5 @@
+ALTER TABLE "Address"
+ADD COLUMN "latitude" DOUBLE PRECISION,
+ADD COLUMN "longitude" DOUBLE PRECISION,
+ADD COLUMN "locationAccuracyMeters" DOUBLE PRECISION,
+ADD COLUMN "locationSource" TEXT;

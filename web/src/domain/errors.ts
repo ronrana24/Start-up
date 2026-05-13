@@ -2,7 +2,9 @@ export type DomainErrorCode =
   | "NOT_FOUND"
   | "INVALID_OTP"
   | "INVALID_INPUT"
-  | "UNAUTHORIZED";
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NETWORK";
 
 export class DomainError extends Error {
   readonly code: DomainErrorCode;

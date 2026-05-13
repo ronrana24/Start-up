@@ -26,6 +26,9 @@ public final class OrderAlertNotifier {
     public static final String EXTRA_ORDER_TOTAL = "orderTotal";
     public static final String EXTRA_ESTIMATED_PAYOUT = "estimatedPayout";
     public static final String EXTRA_DELIVERY_DISTANCE = "deliveryDistance";
+    public static final String EXTRA_DELIVERY_LAT = "deliveryLat";
+    public static final String EXTRA_DELIVERY_LNG = "deliveryLng";
+    public static final String EXTRA_DELIVERY_ACCURACY_METERS = "deliveryAccuracyMeters";
     public static final String EXTRA_ORDER_CREATED_AT = "orderCreatedAt";
 
     private static final String TAG = "OrderAlertNotifier";
@@ -80,6 +83,9 @@ public final class OrderAlertNotifier {
         put(intent, EXTRA_ORDER_TOTAL, data.get(EXTRA_ORDER_TOTAL));
         put(intent, EXTRA_ESTIMATED_PAYOUT, data.get(EXTRA_ESTIMATED_PAYOUT));
         put(intent, EXTRA_DELIVERY_DISTANCE, data.get(EXTRA_DELIVERY_DISTANCE));
+        put(intent, EXTRA_DELIVERY_LAT, data.get(EXTRA_DELIVERY_LAT));
+        put(intent, EXTRA_DELIVERY_LNG, data.get(EXTRA_DELIVERY_LNG));
+        put(intent, EXTRA_DELIVERY_ACCURACY_METERS, data.get(EXTRA_DELIVERY_ACCURACY_METERS));
         put(intent, EXTRA_ORDER_CREATED_AT, data.get(EXTRA_ORDER_CREATED_AT));
         return intent;
     }
@@ -105,6 +111,14 @@ public final class OrderAlertNotifier {
 
     public static String distance(Intent intent) {
         return valueOrFallback(intent == null ? null : intent.getStringExtra(EXTRA_DELIVERY_DISTANCE), "Distance pending");
+    }
+
+    public static Double deliveryLat(Intent intent) {
+        return doubleExtra(intent, EXTRA_DELIVERY_LAT);
+    }
+
+    public static Double deliveryLng(Intent intent) {
+        return doubleExtra(intent, EXTRA_DELIVERY_LNG);
     }
 
     private static void show(Context context, String orderId, String deliveryAddress, String payout, String distance) {
@@ -167,5 +181,20 @@ public final class OrderAlertNotifier {
             return "Order value available";
         }
         return valueOrFallback(data.get(EXTRA_ORDER_TOTAL), valueOrFallback(data.get(EXTRA_ESTIMATED_PAYOUT), "Order value available"));
+    }
+
+    private static Double doubleExtra(Intent intent, String key) {
+        if (intent == null) {
+            return null;
+        }
+        String value = intent.getStringExtra(key);
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 }

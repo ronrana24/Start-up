@@ -7,6 +7,7 @@ import * as winston from 'winston';
 import configuration, { validateEnvironment } from './config/configuration';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { OnboardingGuard } from './common/guards/onboarding.guard';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -66,6 +67,7 @@ import { HealthModule } from './health/health.module';
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: OnboardingGuard },
     { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
   ],

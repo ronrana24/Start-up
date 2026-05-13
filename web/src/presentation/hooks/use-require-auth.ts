@@ -1,19 +1,44 @@
 "use client";
 
 import { useAuthStore } from "@presentation/state/auth-store";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export function useRequireAuth(): boolean {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
+  const isOnboardingCompleted = useAuthStore((s) => s.isOnboardingCompleted);
+  const role = useAuthStore((s) => s.role);
+  const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
-    if (hasCheckedSession && !isAuthenticated) {
-      router.replace("/login");
+    if (!hasCheckedSession) {
+      return;
     }
-  }, [hasCheckedSession, isAuthenticated, router]);
+    if (!isAuthenticated) {
+      router.replace("/login");
+      return;
+    }
+    if (
+      role !== "ADMIN" &&
+      !isOnboardingCompleted &&
+      pathname !== "/onboarding"
+    ) {
+      router.replace("/onboarding");
+    }
+  }, [
+    hasCheckedSession,
+    isAuthenticated,
+    isOnboardingCompleted,
+    pathname,
+    role,
+    router,
+  ]);
 
-  return hasCheckedSession && isAuthenticated;
+  return (
+    hasCheckedSession &&
+    isAuthenticated &&
+    (role === "ADMIN" || isOnboardingCompleted || pathname === "/onboarding")
+  );
 }

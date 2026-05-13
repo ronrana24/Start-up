@@ -13,6 +13,10 @@ let mockAddresses: UserAddress[] = [
     city: "Bengaluru",
     state: "KA",
     pincode: "560001",
+    latitude: 12.9716,
+    longitude: 77.5946,
+    locationAccuracyMeters: null,
+    locationSource: "mock",
     isDefault: true,
   },
 ];
@@ -71,6 +75,10 @@ export function createMockUserProfileGateway(): UserProfileGateway {
         city: input.city,
         state: input.state,
         pincode: input.pincode,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        locationAccuracyMeters: input.locationAccuracyMeters ?? null,
+        locationSource: input.locationSource ?? null,
         isDefault: input.isDefault ?? true,
       };
       mockAddresses = [address, ...mockAddresses];

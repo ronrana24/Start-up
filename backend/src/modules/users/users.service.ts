@@ -1,9 +1,10 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, User } from '@prisma/client';
+import { Prisma, User, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
@@ -36,6 +37,27 @@ export class UsersService {
   }
 
   async updateProfile(user: User, dto: UpdateProfileDto) {
+    if (dto.isOnboardingCompleted === true) {
+      const address = await this.prisma.address.findFirst({
+        where: { userId: user.id },
+        orderBy: [{ isDefault: 'desc' }, { id: 'asc' }],
+        select: { latitude: true, longitude: true },
+      });
+      if (!address) {
+        throw new BadRequestException(
+          'Add a delivery address before completing onboarding.',
+        );
+      }
+      if (
+        user.role === UserRole.BUYER &&
+        !this.hasValidCoordinates(address.latitude, address.longitude)
+      ) {
+        throw new BadRequestException(
+          'Pin your exact delivery location on the map before completing onboarding.',
+        );
+      }
+    }
+
     return this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -62,6 +84,7 @@ export class UsersService {
   }
 
   async createAddress(userId: string, dto: CreateAddressDto) {
+    this.assertCoordinatePair(dto);
     return this.prisma.$transaction(async (tx) => {
       if (dto.isDefault) {
         await tx.address.updateMany({
@@ -77,6 +100,10 @@ export class UsersService {
           city: dto.city,
           state: dto.state,
           pincode: dto.pincode,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          locationAccuracyMeters: dto.locationAccuracyMeters,
+          locationSource: dto.locationSource,
           isDefault: dto.isDefault ?? false,
         },
       });
@@ -88,6 +115,7 @@ export class UsersService {
     addressId: string,
     dto: UpdateAddressDto,
   ) {
+    this.assertCoordinatePair(dto);
     const existing = await this.prisma.address.findFirst({
       where: { id: addressId, userId },
     });
@@ -109,6 +137,14 @@ export class UsersService {
           ...(dto.city !== undefined && { city: dto.city }),
           ...(dto.state !== undefined && { state: dto.state }),
           ...(dto.pincode !== undefined && { pincode: dto.pincode }),
+          ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+          ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+          ...(dto.locationAccuracyMeters !== undefined && {
+            locationAccuracyMeters: dto.locationAccuracyMeters,
+          }),
+          ...(dto.locationSource !== undefined && {
+            locationSource: dto.locationSource,
+          }),
           ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
         },
       });
@@ -146,5 +182,31 @@ export class UsersService {
       throw new ForbiddenException('Address does not belong to the user');
     }
     return addr;
+  }
+
+  private assertCoordinatePair(dto: { latitude?: number; longitude?: number }) {
+    const hasLatitude = dto.latitude !== undefined;
+    const hasLongitude = dto.longitude !== undefined;
+    if (hasLatitude !== hasLongitude) {
+      throw new BadRequestException(
+        'Both latitude and longitude are required for a pinned delivery location.',
+      );
+    }
+  }
+
+  private hasValidCoordinates(
+    latitude: number | null,
+    longitude: number | null,
+  ) {
+    return (
+      typeof latitude === 'number' &&
+      Number.isFinite(latitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      typeof longitude === 'number' &&
+      Number.isFinite(longitude) &&
+      longitude >= -180 &&
+      longitude <= 180
+    );
   }
 }

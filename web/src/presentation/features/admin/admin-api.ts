@@ -62,6 +62,10 @@ export type AdminAddress = {
   city: string;
   state: string;
   pincode: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyMeters?: number | null;
+  locationSource?: string | null;
   isDefault: boolean;
 };
 
@@ -592,14 +596,26 @@ export async function uploadAdminProductImages(
   for (const file of files) {
     body.append("images", file);
   }
-  const res = await fetch(apiUrl("/api/products/uploads"), {
-    method: "POST",
-    body,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(apiUrl("/api/products/uploads"), {
+      method: "POST",
+      body,
+      credentials: "include",
+    });
+  } catch {
+    throw new DomainError(
+      "NETWORK",
+      "No internet connection. Check your network and try again.",
+    );
+  }
   if (!res.ok) {
     throw new DomainError(
-      res.status === 401 ? "UNAUTHORIZED" : "INVALID_INPUT",
+      res.status === 401
+        ? "UNAUTHORIZED"
+        : res.status === 403
+          ? "FORBIDDEN"
+          : "INVALID_INPUT",
       await readApiErrorMessage(res),
     );
   }

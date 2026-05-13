@@ -116,12 +116,26 @@ export class OrdersService {
     const { pricedLines, subtotal, deliveryFee, total } =
       await this.pricing.computeOrderTotals(user, lines, dto.deliveryType);
 
+    const coordinates =
+      typeof address.latitude === 'number' &&
+      Number.isFinite(address.latitude) &&
+      typeof address.longitude === 'number' &&
+      Number.isFinite(address.longitude)
+        ? {
+            lat: address.latitude,
+            lng: address.longitude,
+            accuracyMeters: address.locationAccuracyMeters,
+            source: address.locationSource ?? 'buyer_pin',
+          }
+        : null;
+
     const addressSnapshot = {
       line1: address.line1,
       line2: address.line2,
       city: address.city,
       state: address.state,
       pincode: address.pincode,
+      ...(coordinates ? { coordinates } : {}),
     };
 
     const order = await this.prisma.$transaction(

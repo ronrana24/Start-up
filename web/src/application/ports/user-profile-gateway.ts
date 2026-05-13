@@ -21,6 +21,10 @@ export type CreateUserAddressInput = {
   city: string;
   state: string;
   pincode: string;
+  latitude?: number;
+  longitude?: number;
+  locationAccuracyMeters?: number | null;
+  locationSource?: string;
   isDefault?: boolean;
 };
 
@@ -31,6 +35,10 @@ export type UserAddress = {
   city: string;
   state: string;
   pincode: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationAccuracyMeters?: number | null;
+  locationSource?: string | null;
   isDefault: boolean;
 };
 

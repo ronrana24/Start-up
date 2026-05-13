@@ -35,24 +35,29 @@ const defaultBusiness: BusinessFormState = {
 export function OnboardingScreen() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
   const phone = useAuthStore((s) => s.phone);
   const completed = useAuthStore((s) => s.isOnboardingCompleted);
-  const markOnboardingCompleted = useAuthStore((s) => s.markOnboardingCompleted);
+  const markOnboardingCompleted = useAuthStore(
+    (s) => s.markOnboardingCompleted,
+  );
   const complete = useOnboardingStore((s) => s.complete);
   const onboardingMutation = useCompleteOnboardingMutation();
 
   const [step, setStep] = useState(0);
   const [business, setBusiness] = useState<BusinessFormState>(defaultBusiness);
-  const [address, setAddress] = useState<AddressFormState>(() => getInitialAddressForm());
+  const [address, setAddress] = useState<AddressFormState>(() =>
+    getInitialAddressForm(),
+  );
   const [businessErrors, setBusinessErrors] = useState<
     Partial<Record<"businessName" | "gstNumber", string>>
   >({});
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (hasCheckedSession && !isAuthenticated) {
       router.replace("/login");
     }
-  }, [isAuthenticated, router]);
+  }, [hasCheckedSession, isAuthenticated, router]);
 
   useEffect(() => {
     if (completed) {
@@ -79,15 +84,25 @@ export function OnboardingScreen() {
   function buildAddressPayload(): CreateUserAddressInput {
     const india = isIndianE164(phone);
     const stateName = india
-      ? State.getStatesOfCountry("IN").find((s) => s.isoCode === address.stateIso)?.name ?? ""
+      ? (State.getStatesOfCountry("IN").find(
+          (s) => s.isoCode === address.stateIso,
+        )?.name ?? "")
       : address.stateText.trim();
     const cityName = india ? address.cityName.trim() : address.cityText.trim();
+    if (!address.pinnedLocation) {
+      throw new Error("Pin your exact delivery location on the map");
+    }
     return {
       line1: address.line1.trim(),
       ...(address.line2.trim() ? { line2: address.line2.trim() } : {}),
       city: cityName,
       state: stateName,
       pincode: address.pincode.trim(),
+      latitude: address.pinnedLocation.latitude,
+      longitude: address.pinnedLocation.longitude,
+      locationAccuracyMeters:
+        address.pinnedLocation.locationAccuracyMeters ?? null,
+      locationSource: address.pinnedLocation.locationSource,
       isDefault: true,
     };
   }
@@ -106,7 +121,10 @@ export function OnboardingScreen() {
   }
 
   const submitError = onboardingMutation.isError
-    ? domainErrorMessage(onboardingMutation.error, "Could not save your details")
+    ? domainErrorMessage(
+        onboardingMutation.error,
+        "Could not save your details",
+      )
     : null;
 
   function handleBusinessNext() {
@@ -132,6 +150,14 @@ export function OnboardingScreen() {
   }
 
   const showStepper = step < 3;
+
+  if (!hasCheckedSession || !isAuthenticated || completed) {
+    return (
+      <div className="flex min-h-full flex-1 items-center justify-center bg-page px-4">
+        <div className="h-28 w-full max-w-sm animate-pulse rounded-card border border-default bg-card shadow-soft" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex min-h-full flex-1 flex-col bg-page">
@@ -174,7 +200,9 @@ export function OnboardingScreen() {
             />
           ) : null}
 
-          {step === 3 ? <OnboardingSuccessStep onFinish={handleFinish} /> : null}
+          {step === 3 ? (
+            <OnboardingSuccessStep onFinish={handleFinish} />
+          ) : null}
         </div>
       </div>
     </div>

@@ -10,18 +10,53 @@ function buildApiUrl(baseUrl: string, path: string): string {
   return base ? `${base}${normalizedPath}` : normalizedPath;
 }
 
+function messageFromUnknown(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((item) => messageFromUnknown(item))
+      .filter((item): item is string => Boolean(item))
+      .join("; ");
+    return joined || null;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      messageFromUnknown(record.error) ??
+      messageFromUnknown(record.message) ??
+      messageFromUnknown(record.data)
+    );
+  }
+  return null;
+}
+
 export async function readApiErrorMessage(res: Response): Promise<string> {
   try {
     const data: unknown = await res.json();
-    if (data && typeof data === "object" && "message" in data) {
-      const m = (data as { message: unknown }).message;
-      if (typeof m === "string") return m;
-      if (Array.isArray(m)) return m.filter((x) => typeof x === "string").join(", ");
+    const message = messageFromUnknown(data);
+    if (message) {
+      return message;
     }
   } catch {
     /* ignore */
   }
   return res.statusText || "Request failed";
+}
+
+function errorCodeFromStatus(status: number) {
+  if (status === 401) return "UNAUTHORIZED";
+  if (status === 403) return "FORBIDDEN";
+  if (status === 404) return "NOT_FOUND";
+  return "INVALID_INPUT";
+}
+
+function networkFailure(): DomainError {
+  return new DomainError(
+    "NETWORK",
+    "No internet connection. Check your network and try again.",
+  );
 }
 
 export async function apiJsonPost<T>(
@@ -30,18 +65,20 @@ export async function apiJsonPost<T>(
   body: unknown,
 ): Promise<T> {
   const url = buildApiUrl(baseUrl, path);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      credentials: "include",
+    });
+  } catch {
+    throw networkFailure();
+  }
   if (!res.ok) {
     const message = await readApiErrorMessage(res);
-    throw new DomainError(
-      res.status === 401 ? "UNAUTHORIZED" : "INVALID_INPUT",
-      message,
-    );
+    throw new DomainError(errorCodeFromStatus(res.status), message);
   }
   return (await res.json()) as T;
 }
@@ -62,19 +99,22 @@ export async function apiJsonAuthorized<T>(
   };
   // no authorization header needed for authorized requests
   // because the request is authenticated via cookies
-  // access_token is stored in the cookie 
-  const res = await fetch(url, {
-    method: options.method,
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    credentials: "include",
-  });
+  // access_token is stored in the cookie
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: options.method,
+      headers,
+      body:
+        options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      credentials: "include",
+    });
+  } catch {
+    throw networkFailure();
+  }
   if (!res.ok) {
     const message = await readApiErrorMessage(res);
-    throw new DomainError(
-      res.status === 401 ? "UNAUTHORIZED" : "INVALID_INPUT",
-      message,
-    );
+    throw new DomainError(errorCodeFromStatus(res.status), message);
   }
   const text = await res.text();
   if (!text) {

@@ -16,7 +16,9 @@ function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
   return body as T;
 }
 
-function patchProfileBody(input: UpdateUserProfileInput): Record<string, unknown> {
+function patchProfileBody(
+  input: UpdateUserProfileInput,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (input.businessName !== undefined) {
     body.businessName = input.businessName;
@@ -41,11 +43,21 @@ function addressBody(input: CreateUserAddressInput): Record<string, unknown> {
     city: input.city,
     state: input.state,
     pincode: input.pincode,
+    ...(input.latitude !== undefined && { latitude: input.latitude }),
+    ...(input.longitude !== undefined && { longitude: input.longitude }),
+    ...(input.locationAccuracyMeters !== undefined && {
+      locationAccuracyMeters: input.locationAccuracyMeters,
+    }),
+    ...(input.locationSource !== undefined && {
+      locationSource: input.locationSource,
+    }),
     isDefault: input.isDefault ?? true,
   };
 }
 
-export function createHttpUserProfileGateway(baseUrl: string): UserProfileGateway {
+export function createHttpUserProfileGateway(
+  baseUrl: string,
+): UserProfileGateway {
   return {
     async getProfile() {
       return unwrapBody(

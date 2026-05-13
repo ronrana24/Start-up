@@ -38,13 +38,12 @@ export function SessionBootstrap() {
 
     async function bootstrap() {
       try {
-        console.log("calling bootstrap");
         const user = unwrapBody(
           await apiJsonAuthorized<ApiUser | ApiEnvelope<ApiUser>>(
             readApiBaseUrl(),
             "/api/users/me",
             {
-              method: "GET"
+              method: "GET",
             },
           ),
         );

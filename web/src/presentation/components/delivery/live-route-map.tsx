@@ -10,10 +10,9 @@ type GoogleMap = {
   panTo: (position: LatLngLiteral) => void;
   fitBounds: (bounds: unknown, padding?: number) => void;
 };
-type GoogleMarker = {
-  setMap: (map: GoogleMap | null) => void;
-  setPosition: (position: LatLngLiteral) => void;
-  setIcon: (icon: Record<string, unknown>) => void;
+type GoogleAdvancedMarker = HTMLElement & {
+  map: GoogleMap | null;
+  position: LatLngLiteral | null;
 };
 type GoogleDirectionsRenderer = {
   setDirections: (result: GoogleDirectionsResult) => void;
@@ -57,12 +56,12 @@ type GoogleMapsApi = {
       element: HTMLElement,
       options: Record<string, unknown>,
     ) => GoogleMap;
-    Marker: new (options: Record<string, unknown>) => GoogleMarker;
-    Polyline: new (options: Record<string, unknown>) => GooglePolyline;
-    SymbolPath: {
-      CIRCLE: unknown;
-      FORWARD_CLOSED_ARROW: unknown;
+    marker: {
+      AdvancedMarkerElement: new (
+        options: Record<string, unknown>,
+      ) => GoogleAdvancedMarker;
     };
+    Polyline: new (options: Record<string, unknown>) => GooglePolyline;
     TravelMode: {
       DRIVING: unknown;
     };
@@ -71,6 +70,7 @@ type GoogleMapsApi = {
 
 type GoogleMapsWindow = Window & {
   google?: GoogleMapsApi;
+  __groveGoogleMapsReady?: () => void;
   __groveGoogleMapsPromise?: Promise<GoogleMapsApi>;
 };
 
@@ -85,6 +85,8 @@ export type LiveRouteMetrics = {
 
 const DEFAULT_CENTER = { lat: 30.6708488, lng: 76.8277375 };
 const MAP_SCRIPT_ID = "grove-google-maps-js";
+const MAP_CALLBACK_NAME = "__groveGoogleMapsReady";
+const FALLBACK_MAP_ID = "DEMO_MAP_ID";
 const ROUTE_DEBOUNCE_MS = 350;
 
 function addressLabel(address?: OrderDeliveryAddress | null): string {
@@ -202,12 +204,24 @@ function loadGoogleMaps(apiKey: string): Promise<GoogleMapsApi> {
       return;
     }
 
+    win.__groveGoogleMapsReady = () => {
+      resolve(win.google!);
+      delete win.__groveGoogleMapsReady;
+    };
+
+    const params = new URLSearchParams({
+      key: apiKey,
+      callback: MAP_CALLBACK_NAME,
+      libraries: "places,marker",
+      loading: "async",
+      v: "weekly",
+    });
+
     const script = document.createElement("script");
     script.id = MAP_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly`;
+    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(win.google!);
     script.onerror = () => reject(new Error("Google Maps could not load"));
     document.head.appendChild(script);
   });
@@ -215,30 +229,79 @@ function loadGoogleMaps(apiKey: string): Promise<GoogleMapsApi> {
   return win.__groveGoogleMapsPromise;
 }
 
-function riderIcon(
-  googleMaps: GoogleMapsApi,
-  heading?: number | null,
-): Record<string, unknown> {
-  return {
-    path: googleMaps.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-    rotation: normalizedHeading(heading) ?? 0,
-    scale: 6,
-    fillColor: "#0f5132",
-    fillOpacity: 1,
-    strokeColor: "#ffffff",
-    strokeWeight: 2,
-  };
+function applyStyles(
+  element: HTMLElement,
+  styles: Partial<CSSStyleDeclaration>,
+) {
+  Object.assign(element.style, styles);
 }
 
-function destinationIcon(googleMaps: GoogleMapsApi): Record<string, unknown> {
-  return {
-    path: googleMaps.maps.SymbolPath.CIRCLE,
-    scale: 8,
-    fillColor: "#dc2626",
-    fillOpacity: 1,
-    strokeColor: "#ffffff",
-    strokeWeight: 3,
-  };
+function riderMarkerContent(heading?: number | null): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.setAttribute("aria-label", "Rider live location");
+  applyStyles(wrapper, {
+    height: "34px",
+    position: "relative",
+    transform: `rotate(${normalizedHeading(heading) ?? 0}deg)`,
+    transformOrigin: "center",
+    width: "34px",
+  });
+
+  const body = document.createElement("div");
+  applyStyles(body, {
+    alignItems: "center",
+    background: "#0f5132",
+    border: "3px solid #ffffff",
+    borderRadius: "999px",
+    boxShadow: "0 10px 24px rgba(15, 81, 50, 0.28)",
+    display: "flex",
+    height: "28px",
+    justifyContent: "center",
+    left: "3px",
+    position: "absolute",
+    top: "3px",
+    width: "28px",
+  });
+
+  const arrow = document.createElement("div");
+  applyStyles(arrow, {
+    borderBottom: "10px solid #ffffff",
+    borderLeft: "6px solid transparent",
+    borderRight: "6px solid transparent",
+    height: "0",
+    transform: "translateY(-1px)",
+    width: "0",
+  });
+
+  body.appendChild(arrow);
+  wrapper.appendChild(body);
+  return wrapper;
+}
+
+function destinationMarkerContent(): HTMLElement {
+  const wrapper = document.createElement("div");
+  wrapper.setAttribute("aria-label", "Delivery location");
+  applyStyles(wrapper, {
+    alignItems: "center",
+    background: "#dc2626",
+    border: "3px solid #ffffff",
+    borderRadius: "999px",
+    boxShadow: "0 10px 24px rgba(220, 38, 38, 0.24)",
+    display: "flex",
+    height: "30px",
+    justifyContent: "center",
+    width: "30px",
+  });
+
+  const dot = document.createElement("div");
+  applyStyles(dot, {
+    background: "#ffffff",
+    borderRadius: "999px",
+    height: "8px",
+    width: "8px",
+  });
+  wrapper.appendChild(dot);
+  return wrapper;
 }
 
 function routeMetricsFromResult(
@@ -313,8 +376,8 @@ export function LiveRouteMap({
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
-  const riderMarkerRef = useRef<GoogleMarker | null>(null);
-  const destinationMarkerRef = useRef<GoogleMarker | null>(null);
+  const riderMarkerRef = useRef<GoogleAdvancedMarker | null>(null);
+  const destinationMarkerRef = useRef<GoogleAdvancedMarker | null>(null);
   const directionsRendererRef = useRef<GoogleDirectionsRenderer | null>(null);
   const directionsServiceRef = useRef<GoogleDirectionsService | null>(null);
   const geocoderRef = useRef<GoogleGeocoder | null>(null);
@@ -348,6 +411,8 @@ export function LiveRouteMap({
     const map = new googleMaps.maps.Map(containerRef.current, {
       center: asLatLng(initialCenter),
       zoom: rider ? 15 : 13,
+      mapId:
+        process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID?.trim() || FALLBACK_MAP_ID,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: true,
@@ -404,38 +469,50 @@ export function LiveRouteMap({
     if (rider) {
       const position = asLatLng(rider);
       if (!riderMarkerRef.current) {
-        riderMarkerRef.current = new googleMaps.maps.Marker({
-          map,
-          position,
-          title: "Rider live location",
-          icon: riderIcon(googleMaps, rider.heading),
-          zIndex: 20,
-        });
+        riderMarkerRef.current =
+          new googleMaps.maps.marker.AdvancedMarkerElement({
+            map,
+            position,
+            title: "Rider live location",
+            zIndex: 20,
+          });
+        riderMarkerRef.current.replaceChildren(
+          riderMarkerContent(rider.heading),
+        );
       } else {
-        riderMarkerRef.current.setMap(map);
-        riderMarkerRef.current.setPosition(position);
-        riderMarkerRef.current.setIcon(riderIcon(googleMaps, rider.heading));
+        riderMarkerRef.current.map = map;
+        riderMarkerRef.current.position = position;
+        riderMarkerRef.current.replaceChildren(
+          riderMarkerContent(rider.heading),
+        );
       }
     } else {
-      riderMarkerRef.current?.setMap(null);
+      if (riderMarkerRef.current) {
+        riderMarkerRef.current.map = null;
+      }
     }
 
     if (destination) {
       const position = asLatLng(destination);
       if (!destinationMarkerRef.current) {
-        destinationMarkerRef.current = new googleMaps.maps.Marker({
-          map,
-          position,
-          title: "Delivery location",
-          icon: destinationIcon(googleMaps),
-          zIndex: 10,
-        });
+        destinationMarkerRef.current =
+          new googleMaps.maps.marker.AdvancedMarkerElement({
+            map,
+            position,
+            title: "Delivery location",
+            zIndex: 10,
+          });
+        destinationMarkerRef.current.replaceChildren(
+          destinationMarkerContent(),
+        );
       } else {
-        destinationMarkerRef.current.setMap(map);
-        destinationMarkerRef.current.setPosition(position);
+        destinationMarkerRef.current.map = map;
+        destinationMarkerRef.current.position = position;
       }
     } else {
-      destinationMarkerRef.current?.setMap(null);
+      if (destinationMarkerRef.current) {
+        destinationMarkerRef.current.map = null;
+      }
     }
 
     if (rider && !destination) map.panTo(asLatLng(rider));

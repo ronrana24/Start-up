@@ -26,6 +26,9 @@ type PushPayload = {
   orderTotal: string;
   estimatedPayout: string;
   deliveryDistance: string;
+  deliveryLat?: string;
+  deliveryLng?: string;
+  deliveryAccuracyMeters?: string;
   orderCreatedAt: string;
 };
 
@@ -78,6 +81,7 @@ export class DeliveryPushService {
 
   private buildPayload(order: PushOrder): PushPayload {
     const deliveryAddress = this.deliveryLocationLabel(order.addressSnapshot);
+    const deliveryCoordinates = this.coordinatesFromJson(order.addressSnapshot);
     const estimatedPayout = Number(order.deliveryFee).toLocaleString('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -97,6 +101,19 @@ export class DeliveryPushService {
       orderTotal,
       estimatedPayout,
       deliveryDistance: this.deliveryDistanceLabel(order.addressSnapshot),
+      ...(deliveryCoordinates
+        ? {
+            deliveryLat: String(deliveryCoordinates.lat),
+            deliveryLng: String(deliveryCoordinates.lng),
+            ...(deliveryCoordinates.accuracyMeters != null
+              ? {
+                  deliveryAccuracyMeters: String(
+                    deliveryCoordinates.accuracyMeters,
+                  ),
+                }
+              : {}),
+          }
+        : {}),
       orderCreatedAt:
         order.createdAt instanceof Date
           ? order.createdAt.toISOString()
@@ -127,6 +144,17 @@ export class DeliveryPushService {
             orderTotal: payload.orderTotal,
             estimatedPayout: payload.estimatedPayout,
             deliveryDistance: payload.deliveryDistance,
+            ...(payload.deliveryLat && payload.deliveryLng
+              ? {
+                  deliveryLat: payload.deliveryLat,
+                  deliveryLng: payload.deliveryLng,
+                  ...(payload.deliveryAccuracyMeters
+                    ? {
+                        deliveryAccuracyMeters: payload.deliveryAccuracyMeters,
+                      }
+                    : {}),
+                }
+              : {}),
             orderCreatedAt: payload.orderCreatedAt,
           },
           android: {
@@ -179,6 +207,15 @@ export class DeliveryPushService {
         orderTotal: payload.orderTotal,
         estimatedPayout: payload.estimatedPayout,
         deliveryDistance: payload.deliveryDistance,
+        ...(payload.deliveryLat && payload.deliveryLng
+          ? {
+              deliveryLat: payload.deliveryLat,
+              deliveryLng: payload.deliveryLng,
+              ...(payload.deliveryAccuracyMeters
+                ? { deliveryAccuracyMeters: payload.deliveryAccuracyMeters }
+                : {}),
+            }
+          : {}),
         orderCreatedAt: payload.orderCreatedAt,
       },
       priority: 'high',
@@ -338,7 +375,17 @@ export class DeliveryPushService {
     ) {
       return null;
     }
-    return { lat, lng };
+    const rawAccuracy = source.accuracyMeters ?? source.locationAccuracyMeters;
+    const accuracyMeters =
+      typeof rawAccuracy === 'string' ? Number(rawAccuracy) : rawAccuracy;
+    return {
+      lat,
+      lng,
+      accuracyMeters:
+        typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters)
+          ? accuracyMeters
+          : null,
+    };
   }
 
   private recordFromJson(value: unknown): Record<string, unknown> | null {

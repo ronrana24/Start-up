@@ -42,6 +42,9 @@ async function main() {
       city: 'Bengaluru',
       state: 'KA',
       pincode: '560001',
+      latitude: 12.9716,
+      longitude: 77.5946,
+      locationSource: 'seed',
       isDefault: true,
     },
   });

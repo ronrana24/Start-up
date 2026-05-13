@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
 
 enum UserRole {
@@ -83,68 +83,72 @@ model User {
 }
 
 model Address {
-  id        String  @id @default(cuid())
-  userId    String
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  line1     String
-  line2     String?
-  city      String
-  state     String
-  pincode   String
-  isDefault Boolean @default(false)
+  id                     String  @id @default(cuid())
+  userId                 String
+  user                   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  line1                  String
+  line2                  String?
+  city                   String
+  state                  String
+  pincode                String
+  latitude               Float?
+  longitude              Float?
+  locationAccuracyMeters Float?
+  locationSource         String?
+  isDefault              Boolean @default(false)
 
   @@index([userId])
 }
 
 model Product {
-  id               String       @id @default(cuid())
+  id               String                   @id @default(cuid())
   name             String
   category         String
   unit             ProductUnit
   piecesPerPack    Int?
-  isPublic         Boolean      @default(false)
-  basePrice        Decimal      @db.Decimal(12, 2)
-  imageUrls        Json         @default("[]")
+  isPublic         Boolean                  @default(false)
+  basePrice        Decimal                  @db.Decimal(12, 2)
+  imageUrls        Json                     @default("[]")
   bulkPricingTiers Json
   inventory        Inventory?
   orderItems       OrderItem[]
   pricingRules     UserProductPricingRule[]
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
   @@index([category])
 }
 
 model Inventory {
-  id            String  @id @default(cuid())
-  productId     String  @unique
-  product       Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  warehouseId   String  @default("default")
-  availableQty  Int
-  reservedQty   Int     @default(0)
-  version       Int     @default(0)
+  id           String  @id @default(cuid())
+  productId    String  @unique
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId  String  @default("default")
+  availableQty Int
+  reservedQty  Int     @default(0)
+  version      Int     @default(0)
 
   @@index([warehouseId])
 }
 
 model Order {
-  id              String        @id @default(cuid())
-  userId          String
-  user            User          @relation(fields: [userId], references: [id])
-  items           OrderItem[]
-  status          OrderStatus   @default(PLACED)
-  deliveryType    DeliveryType
-  deliveryFee     Decimal       @db.Decimal(12, 2)
-  subtotalAmount  Decimal       @db.Decimal(12, 2)
-  totalAmount     Decimal       @db.Decimal(12, 2)
-  addressSnapshot Json
-  riderId         String?
-  rider           Rider?        @relation(fields: [riderId], references: [id])
-  pickedUpAt      DateTime?
-  deliveredAt     DateTime?
-  deliveryDistanceKm Decimal?   @db.Decimal(8, 2)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                 String       @id @default(cuid())
+  userId             String
+  user               User         @relation(fields: [userId], references: [id])
+  items              OrderItem[]
+  status             OrderStatus  @default(PLACED)
+  deliveryType       DeliveryType
+  deliveryFee        Decimal      @db.Decimal(12, 2)
+  subtotalAmount     Decimal      @db.Decimal(12, 2)
+  totalAmount        Decimal      @db.Decimal(12, 2)
+  addressSnapshot    Json
+  riderId            String?
+  rider              Rider?       @relation(fields: [riderId], references: [id])
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  deliveryDistanceKm Decimal?     @db.Decimal(8, 2)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   @@index([userId])
   @@index([status])
@@ -215,17 +219,17 @@ model UserProductPricingAudit {
 }
 
 model Rider {
-  id              String      @id @default(cuid())
-  userId          String      @unique
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
-  phone           String      @unique
-  status          RiderStatus @default(IDLE)
+  phone           String        @unique
+  status          RiderStatus   @default(IDLE)
   currentLocation Json?
   orders          Order[]
   devices         RiderDevice[]
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([status])
   @@index([userId])

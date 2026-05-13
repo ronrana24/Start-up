@@ -214,11 +214,7 @@ public final class MainActivity extends AppCompatActivity {
         targetOrderId = orderIdFromIntent(getIntent());
 
         if (sessionStore.isLoggedIn()) {
-            if (sessionStore.isOnboardingCompleted()) {
-                bootstrapSession();
-            } else {
-                showOnboardingWelcome();
-            }
+            resumeLoggedInSession();
         } else {
             showLogin();
         }
@@ -905,11 +901,11 @@ public final class MainActivity extends AppCompatActivity {
             renderAuthOrOnboarding();
             return;
         }
+        sessionStore.updateUser(user);
         rider = authRider;
         if (authRider != null) {
             sessionStore.updateRider(authRider);
         }
-        registerPushToken();
         if (!user.isOnboardingCompleted) {
             addressDraft = sessionStore.onboardingAddressDraft();
             showOnboardingWelcome();
@@ -1006,6 +1002,12 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(Ui.text(this, "Let's set up your rider account", 24, Typeface.BOLD));
         Ui.gap(body, 12);
         body.addView(Ui.text(this, "A few quick details help dispatch send the right jobs, keep delivery addresses accurate, and get you to the dashboard faster.", 14, Typeface.NORMAL));
+        if (authError != null) {
+            Ui.gap(body, 12);
+            TextView error = Ui.error(this, authError);
+            error.setGravity(Gravity.CENTER);
+            body.addView(error);
+        }
         Ui.gap(body, 30);
         MaterialButton next = Ui.button(this, "Next");
         bindAction(next, () -> {
@@ -1541,6 +1543,46 @@ public final class MainActivity extends AppCompatActivity {
         return String.join(separator, parts);
     }
 
+    private void resumeLoggedInSession() {
+        repository.refreshProfile(new UiResult<Dtos.UserDto>() {
+            @Override
+            public void success(Dtos.UserDto user) {
+                if (user == null || !"RIDER".equals(user.role)) {
+                    sessionStore.clear();
+                    showLogin();
+                    return;
+                }
+                if (!user.isOnboardingCompleted) {
+                    addressDraft = sessionStore.onboardingAddressDraft();
+                    showOnboardingWelcome();
+                    return;
+                }
+                bootstrapSession();
+            }
+
+            @Override
+            public void error(RiderRepository.ApiFailure failure) {
+                if (failure.unauthorized) {
+                    sessionStore.clear();
+                    showLogin();
+                    return;
+                }
+                if (!sessionStore.isOnboardingCompleted() || failure.onboardingRequired) {
+                    showOnboardingRequired(failure);
+                    return;
+                }
+                bootstrapSession();
+            }
+        });
+    }
+
+    private void showOnboardingRequired(RiderRepository.ApiFailure failure) {
+        addressDraft = sessionStore.onboardingAddressDraft();
+        showOnboardingWelcome();
+        authError = friendlyFailure(failure, "Complete onboarding to continue");
+        renderAuthOrOnboarding();
+    }
+
     private void bootstrapSession() {
         repository.bootstrap(new UiResult<Dtos.RiderDto>() {
             @Override
@@ -1557,6 +1599,10 @@ public final class MainActivity extends AppCompatActivity {
                 if (failure.unauthorized) {
                     sessionStore.clear();
                     showLogin();
+                    return;
+                }
+                if (failure.onboardingRequired) {
+                    showOnboardingRequired(failure);
                     return;
                 }
                 lastError = failure.message;
@@ -2034,7 +2080,7 @@ public final class MainActivity extends AppCompatActivity {
         Ui.gap(body, 8);
 
         MaterialButton dropNav = Ui.button(this, "Navigate to drop");
-        bindAction(dropNav, () -> openNavigation(Dtos.deliveryAddress(order)));
+        bindAction(dropNav, () -> openNavigation(order));
         body.addView(dropNav);
 
         MaterialButton preview = Ui.button(this, "Preview route");
@@ -2153,8 +2199,13 @@ public final class MainActivity extends AppCompatActivity {
             @Override
             public void error(RiderRepository.ApiFailure failure) {
                 lastError = failure.message;
-                if (failure.unauthorized) showLogin();
-                else render();
+                if (failure.unauthorized) {
+                    showLogin();
+                } else if (failure.onboardingRequired) {
+                    showOnboardingRequired(failure);
+                } else {
+                    render();
+                }
             }
         });
     }
@@ -2176,8 +2227,13 @@ public final class MainActivity extends AppCompatActivity {
             @Override
             public void error(RiderRepository.ApiFailure failure) {
                 lastError = failure.message;
-                if (failure.unauthorized) showLogin();
-                else render();
+                if (failure.unauthorized) {
+                    showLogin();
+                } else if (failure.onboardingRequired) {
+                    showOnboardingRequired(failure);
+                } else {
+                    render();
+                }
             }
         });
     }
@@ -2326,6 +2382,14 @@ public final class MainActivity extends AppCompatActivity {
         JsonObject address = new JsonObject();
         address.addProperty("line1", OrderAlertNotifier.deliveryAddress(intent));
         address.addProperty("distanceLabel", OrderAlertNotifier.distance(intent));
+        Double deliveryLat = OrderAlertNotifier.deliveryLat(intent);
+        Double deliveryLng = OrderAlertNotifier.deliveryLng(intent);
+        if (deliveryLat != null && deliveryLng != null) {
+            JsonObject coordinates = new JsonObject();
+            coordinates.addProperty("lat", deliveryLat);
+            coordinates.addProperty("lng", deliveryLng);
+            address.add("coordinates", coordinates);
+        }
         order.addressSnapshot = address;
         return order;
     }
@@ -2434,6 +2498,9 @@ public final class MainActivity extends AppCompatActivity {
         putIfPresent(data, OrderAlertNotifier.EXTRA_ORDER_TOTAL, intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_TOTAL));
         putIfPresent(data, OrderAlertNotifier.EXTRA_ESTIMATED_PAYOUT, intent.getStringExtra(OrderAlertNotifier.EXTRA_ESTIMATED_PAYOUT));
         putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_DISTANCE, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_DISTANCE));
+        putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_LAT, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_LAT));
+        putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_LNG, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_LNG));
+        putIfPresent(data, OrderAlertNotifier.EXTRA_DELIVERY_ACCURACY_METERS, intent.getStringExtra(OrderAlertNotifier.EXTRA_DELIVERY_ACCURACY_METERS));
         putIfPresent(data, OrderAlertNotifier.EXTRA_ORDER_CREATED_AT, intent.getStringExtra(OrderAlertNotifier.EXTRA_ORDER_CREATED_AT));
         return data;
     }
@@ -2547,8 +2614,13 @@ public final class MainActivity extends AppCompatActivity {
                     @Override
                     public void error(RiderRepository.ApiFailure failure) {
                         lastError = "Location upload failed: " + failure.message;
-                        if (failure.unauthorized) showLogin();
-                        else render();
+                        if (failure.unauthorized) {
+                            showLogin();
+                        } else if (failure.onboardingRequired) {
+                            showOnboardingRequired(failure);
+                        } else {
+                            render();
+                        }
                     }
                 }
         );
@@ -2745,6 +2817,23 @@ public final class MainActivity extends AppCompatActivity {
         Intent intent = new Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps");
         if (intent.resolveActivity(getPackageManager()) == null) {
             intent.setPackage(null);
+        }
+        startActivity(intent);
+    }
+
+    private void openNavigation(Dtos.OrderDto order) {
+        Dtos.Coordinates drop = Dtos.coordinates(order == null ? null : order.addressSnapshot);
+        if (drop == null) {
+            openNavigation(Dtos.deliveryAddress(order));
+            return;
+        }
+        Uri uri = Uri.parse("google.navigation:q=" + drop.lat + "," + drop.lng + "&mode=d");
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps");
+        if (intent.resolveActivity(getPackageManager()) == null) {
+            intent = new Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/maps/dir/?api=1&destination=" + drop.lat + "," + drop.lng + "&travelmode=driving")
+            );
         }
         startActivity(intent);
     }

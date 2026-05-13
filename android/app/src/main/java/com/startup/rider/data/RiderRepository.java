@@ -2,10 +2,12 @@ package com.startup.rider.data;
 
 import androidx.annotation.NonNull;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.io.IOException;
+import java.util.Locale;
 
 import retrofit2.Call;
 import retrofit2.Response;
@@ -229,12 +231,19 @@ public final class RiderRepository {
     public static final class ApiFailure {
         public final String message;
         public final boolean unauthorized;
+        public final boolean forbidden;
         public final boolean network;
+        public final boolean onboardingRequired;
+        public final int statusCode;
 
-        private ApiFailure(String message, boolean unauthorized, boolean network) {
+        private ApiFailure(String message, int statusCode, boolean network) {
             this.message = message;
-            this.unauthorized = unauthorized;
+            this.statusCode = statusCode;
+            this.unauthorized = statusCode == 401;
+            this.forbidden = statusCode == 403;
             this.network = network;
+            this.onboardingRequired = forbidden && message != null
+                    && message.toLowerCase(Locale.US).contains("onboarding");
         }
 
         public static ApiFailure fromResponse(Response<?> response) {
@@ -248,25 +257,65 @@ public final class RiderRepository {
                 }
             } catch (IOException ignored) {
             }
-            return new ApiFailure(message == null || message.isEmpty() ? "Request failed" : message, response.code() == 401, false);
+            if (message == null || message.trim().isEmpty()) {
+                if (response.code() == 401) {
+                    message = "Your session expired. Please sign in again.";
+                } else if (response.code() == 403) {
+                    message = "You do not have permission to perform this action.";
+                } else {
+                    message = "Request failed";
+                }
+            }
+            return new ApiFailure(message, response.code(), false);
         }
 
         public static ApiFailure fromThrowable(Throwable throwable) {
-            return new ApiFailure(throwable.getMessage() == null ? "Network request failed" : throwable.getMessage(), false, true);
+            return new ApiFailure("No internet connection. Check your network and try again.", 0, true);
         }
 
         private static String parseErrorMessage(String raw) {
             try {
-                JsonObject object = JsonParser.parseString(raw).getAsJsonObject();
-                if (object.has("error") && !object.get("error").isJsonNull()) {
-                    return object.get("error").getAsString();
-                }
-                if (object.has("message") && !object.get("message").isJsonNull()) {
-                    return object.get("message").getAsString();
-                }
+                String message = messageFromJson(JsonParser.parseString(raw));
+                return message == null || message.trim().isEmpty() ? raw : message;
             } catch (RuntimeException ignored) {
             }
             return raw;
+        }
+
+        private static String messageFromJson(JsonElement element) {
+            if (element == null || element.isJsonNull()) {
+                return null;
+            }
+            if (element.isJsonPrimitive()) {
+                return element.getAsString();
+            }
+            if (element.isJsonArray()) {
+                StringBuilder builder = new StringBuilder();
+                for (JsonElement item : element.getAsJsonArray()) {
+                    String message = messageFromJson(item);
+                    if (message == null || message.trim().isEmpty()) {
+                        continue;
+                    }
+                    if (builder.length() > 0) {
+                        builder.append("; ");
+                    }
+                    builder.append(message);
+                }
+                return builder.length() == 0 ? null : builder.toString();
+            }
+            if (element.isJsonObject()) {
+                JsonObject object = element.getAsJsonObject();
+                String error = object.has("error") ? messageFromJson(object.get("error")) : null;
+                if (error != null && !error.trim().isEmpty()) {
+                    return error;
+                }
+                String message = object.has("message") ? messageFromJson(object.get("message")) : null;
+                if (message != null && !message.trim().isEmpty()) {
+                    return message;
+                }
+                return object.has("data") ? messageFromJson(object.get("data")) : null;
+            }
+            return null;
         }
     }
 }

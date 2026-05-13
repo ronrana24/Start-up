@@ -13,6 +13,11 @@ import {
 } from "@presentation/lib/onboarding-validation";
 import { City, State } from "country-state-city";
 import { useMemo, useState } from "react";
+import {
+  DeliveryLocationPicker,
+  isValidPinnedDeliveryLocation,
+  type PinnedDeliveryLocation,
+} from "./delivery-location-picker";
 
 const IN = "IN";
 
@@ -27,6 +32,7 @@ export type AddressFormState = {
   /** Outside India */
   cityText: string;
   stateText: string;
+  pinnedLocation: PinnedDeliveryLocation | null;
 };
 
 const initialAddress: AddressFormState = {
@@ -37,6 +43,7 @@ const initialAddress: AddressFormState = {
   cityName: "",
   cityText: "",
   stateText: "",
+  pinnedLocation: null,
 };
 
 type OnboardingAddressStepProps = {
@@ -73,13 +80,21 @@ export function OnboardingAddressStep({
     return City.getCitiesOfState(IN, value.stateIso);
   }, [value.stateIso]);
 
-  const [localErrors, setLocalErrors] = useState<Partial<Record<string, string>>>({});
+  const [localErrors, setLocalErrors] = useState<
+    Partial<Record<string, string>>
+  >({});
 
-  function patch<K extends keyof AddressFormState>(key: K, v: AddressFormState[K]) {
+  function patch<K extends keyof AddressFormState>(
+    key: K,
+    v: AddressFormState[K],
+  ) {
     if (submitError) onClearSubmitError();
     const next = { ...value, [key]: v };
     if (key === "stateIso") {
       next.cityName = "";
+    }
+    if (key !== "pinnedLocation") {
+      next.pinnedLocation = null;
     }
     onChange(next);
     setLocalErrors({});
@@ -123,6 +138,9 @@ export function OnboardingAddressStep({
         err.pincode = "Enter a valid postal code (4–10 characters)";
       }
     }
+    if (!isValidPinnedDeliveryLocation(value.pinnedLocation)) {
+      err.pinnedLocation = "Pin your exact delivery location on the map";
+    }
     setLocalErrors(err);
     return Object.keys(err).length === 0;
   }
@@ -131,6 +149,17 @@ export function OnboardingAddressStep({
     if (!validate()) return;
     onSubmit();
   }
+
+  const addressLabel = useMemo(() => {
+    const stateName = isIndia
+      ? inStates.find((s) => s.isoCode === value.stateIso)?.name
+      : value.stateText;
+    const city = isIndia ? value.cityName : value.cityText;
+    return [value.line1, value.line2, city, stateName, value.pincode]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(", ");
+  }, [inStates, isIndia, value]);
 
   return (
     <div className="mx-auto w-full max-w-md space-y-4">
@@ -185,7 +214,9 @@ export function OnboardingAddressStep({
               disabled={!value.stateIso}
               error={localErrors.city}
             >
-              <option value="">{value.stateIso ? "Select city" : "Select state first"}</option>
+              <option value="">
+                {value.stateIso ? "Select city" : "Select state first"}
+              </option>
               {cities.map((c, i) => (
                 <option
                   key={`${c.name}-${c.latitude ?? ""}-${c.longitude ?? ""}-${i}`}
@@ -225,6 +256,20 @@ export function OnboardingAddressStep({
           error={localErrors.pincode}
         />
       </Card>
+
+      <DeliveryLocationPicker
+        addressLabel={addressLabel}
+        value={value.pinnedLocation}
+        onChange={(pinnedLocation) => patch("pinnedLocation", pinnedLocation)}
+        error={localErrors.pinnedLocation}
+        onClearError={() => {
+          setLocalErrors((current) => {
+            const next = { ...current };
+            delete next.pinnedLocation;
+            return next;
+          });
+        }}
+      />
 
       {submitError ? (
         <p className="text-center text-sm text-red-600" role="alert">

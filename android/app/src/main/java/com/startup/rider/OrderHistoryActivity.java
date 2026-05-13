@@ -284,7 +284,16 @@ public final class OrderHistoryActivity extends AppCompatActivity {
                 if (swipeRefresh != null) swipeRefresh.setRefreshing(false);
                 if (failure.unauthorized) {
                     sessionStore.clear();
-                    startActivity(new Intent(OrderHistoryActivity.this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));
+                    Intent intent = new Intent(OrderHistoryActivity.this, MainActivity.class)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(intent);
+                    finish();
+                    return;
+                }
+                if (failure.onboardingRequired) {
+                    Intent intent = new Intent(OrderHistoryActivity.this, MainActivity.class)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(intent);
                     finish();
                     return;
                 }

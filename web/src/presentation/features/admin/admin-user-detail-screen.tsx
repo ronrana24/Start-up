@@ -106,6 +106,20 @@ function orderAddress(order: AdminProfileOrder): string {
     .join(" - ");
 }
 
+function pinnedAddressLocation(address: AdminAddress): string | null {
+  if (
+    typeof address.latitude !== "number" ||
+    typeof address.longitude !== "number"
+  ) {
+    return null;
+  }
+  const accuracy =
+    typeof address.locationAccuracyMeters === "number"
+      ? ` · ${Math.round(address.locationAccuracyMeters)}m accuracy`
+      : "";
+  return `${address.latitude.toFixed(6)}, ${address.longitude.toFixed(6)}${accuracy}`;
+}
+
 function discountLabel(type: PricingDiscountType, value: number): string {
   return type === "PERCENT_OFF" ? `${value}% off` : `${formatInr(value)} off`;
 }
@@ -603,6 +617,15 @@ export function AdminUserDetailScreen() {
                     <p className="mt-2 font-mono text-xs text-catalog-text-muted">
                       {address.pincode}
                     </p>
+                    {pinnedAddressLocation(address) ? (
+                      <p className="mt-2 font-mono text-xs text-catalog-green">
+                        {pinnedAddressLocation(address)}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs font-bold text-amber-700">
+                        No pinned delivery coordinates
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
