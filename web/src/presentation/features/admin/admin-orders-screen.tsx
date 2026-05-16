@@ -80,6 +80,37 @@ function firstProductImage(item: AdminOrder["items"][number]): string | null {
   return Array.isArray(urls) && urls.length > 0 ? urls[0] : null;
 }
 
+function paymentModeLabel(mode?: AdminOrder["paymentMode"]): string {
+  if (mode === "PARTIAL_UPI") return "Partial UPI";
+  if (mode === "LEGACY") return "Legacy paid";
+  return "Full UPI";
+}
+
+function paymentStatusLabel(status?: AdminOrder["paymentStatus"]): string {
+  if (status === "PARTIALLY_PAID") return "Partially paid";
+  if (status === "FAILED") return "Failed";
+  if (status === "PENDING") return "Pending";
+  return "Paid";
+}
+
+function collectionStatusLabel(
+  status?: AdminOrder["collectionStatus"],
+): string {
+  if (status === "PENDING") return "Collection pending";
+  if (status === "COLLECTED") return "Collected";
+  if (status === "WAIVED") return "Waived";
+  return "Not required";
+}
+
+function paymentStatusClass(status?: AdminOrder["paymentStatus"]): string {
+  if (status === "FAILED") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "PENDING")
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "PARTIALLY_PAID")
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-green-200 bg-green-50 text-green-700";
+}
+
 export function AdminOrdersScreen() {
   const accessToken = useAuthStore((s) => s.accessToken);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "ALL">("ALL");
@@ -236,7 +267,12 @@ export function AdminOrdersScreen() {
                           </p>
                         </td>
                         <td className="px-4 py-3 font-semibold text-catalog-text">
-                          {formatInr(order.totalAmount)}
+                          <p>{formatInr(order.totalAmount)}</p>
+                          {Number(order.dueAmount ?? 0) > 0 ? (
+                            <p className="mt-0.5 text-xs font-bold text-amber-700">
+                              Due {formatInr(order.dueAmount ?? 0)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3">
                           {statusLabel(order.deliveryType)}
@@ -414,6 +450,102 @@ export function AdminOrdersScreen() {
                                       </dd>
                                     </div>
                                   </dl>
+                                </section>
+
+                                <section className="rounded-xl border border-catalog-border bg-card p-4">
+                                  <div className="mb-3 flex items-center justify-between gap-3">
+                                    <h2 className="text-sm font-black text-catalog-text">
+                                      Payment & collection
+                                    </h2>
+                                    <span
+                                      className={cn(
+                                        "rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide",
+                                        paymentStatusClass(order.paymentStatus),
+                                      )}
+                                    >
+                                      {paymentStatusLabel(order.paymentStatus)}
+                                    </span>
+                                  </div>
+                                  <dl className="grid grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Mode
+                                      </dt>
+                                      <dd className="font-semibold text-catalog-text">
+                                        {paymentModeLabel(order.paymentMode)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Total
+                                      </dt>
+                                      <dd className="font-semibold text-catalog-text">
+                                        {formatInr(order.totalAmount)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Paid online
+                                      </dt>
+                                      <dd className="font-semibold text-catalog-text">
+                                        {formatInr(order.paidAmount ?? 0)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Due
+                                      </dt>
+                                      <dd
+                                        className={cn(
+                                          "font-semibold",
+                                          Number(order.dueAmount ?? 0) > 0
+                                            ? "text-amber-700"
+                                            : "text-catalog-text",
+                                        )}
+                                      >
+                                        {formatInr(order.dueAmount ?? 0)}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Collection
+                                      </dt>
+                                      <dd className="font-semibold text-catalog-text">
+                                        {collectionStatusLabel(
+                                          order.collectionStatus,
+                                        )}
+                                      </dd>
+                                    </div>
+                                    <div>
+                                      <dt className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+                                        Method
+                                      </dt>
+                                      <dd className="font-semibold text-catalog-text">
+                                        {order.collectionMethod
+                                          ? statusLabel(order.collectionMethod)
+                                          : "None"}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                  {order.collectionInstructions ? (
+                                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold leading-relaxed text-amber-800">
+                                      {order.collectionInstructions}
+                                    </p>
+                                  ) : null}
+                                  {order.paymentTransactions?.length ? (
+                                    <div className="mt-3 rounded-lg border border-catalog-border bg-catalog-surface p-3 text-xs">
+                                      <p className="font-black text-catalog-text">
+                                        Latest Razorpay reference
+                                      </p>
+                                      <p className="mt-1 break-all font-mono text-catalog-text-muted">
+                                        {order.paymentTransactions[0]
+                                          ?.razorpayPaymentId ??
+                                          order.paymentTransactions[0]
+                                            ?.razorpayOrderId ??
+                                          "Not captured yet"}
+                                      </p>
+                                    </div>
+                                  ) : null}
                                 </section>
 
                                 <section className="rounded-xl border border-catalog-border bg-card p-4">

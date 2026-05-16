@@ -219,7 +219,9 @@ export function DeliveryLocationPicker({
 }) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
   const [googleMaps, setGoogleMaps] = useState<GoogleMapsApi | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(
+    apiKey ? null : "Google Maps API key is missing.",
+  );
   const [searchValue, setSearchValue] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
@@ -241,7 +243,6 @@ export function DeliveryLocationPicker({
 
   useEffect(() => {
     if (!apiKey) {
-      setLoadError("Google Maps API key is missing.");
       return;
     }
     let cancelled = false;

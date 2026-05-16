@@ -168,6 +168,10 @@ public final class RiderRepository {
         enqueue(api.patchDeliveryStatus(orderId, new Dtos.PatchStatusRequest(status)), result);
     }
 
+    public void recordCollection(String orderId, String method, String amount, String reference, String note, Result<Dtos.OrderDto> result) {
+        enqueue(api.recordCollection(orderId, new Dtos.RecordCollectionRequest(method, amount, reference, note)), result);
+    }
+
     public void patchLocation(double lat, double lng, Float heading, Result<Dtos.RiderDto> result) {
         enqueue(api.patchLocation(new Dtos.PatchLocationRequest(lat, lng, heading)), result);
     }

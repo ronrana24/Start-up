@@ -14,6 +14,12 @@ export type OrderListItemLine = {
 export type OrderListEntry = {
   orderId: string;
   orderAmount: string;
+  paymentMode: string;
+  paymentStatus: string;
+  paidAmount: string;
+  dueAmount: string;
+  paymentCollectionRequired: boolean;
+  collectionStatus: string;
   orderDate: string;
   items: OrderListItemLine[];
 };

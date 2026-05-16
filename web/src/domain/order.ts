@@ -46,6 +46,15 @@ export type OrderDeliveryAddress = {
   coordinates?: Coordinates | null;
 };
 
+export type OrderPaymentSummary = {
+  mode: string;
+  status: string;
+  paidCents: number;
+  dueCents: number;
+  collectionRequired: boolean;
+  collectionStatus: string;
+};
+
 export type Order = {
   id: OrderId;
   userId: string;
@@ -56,4 +65,5 @@ export type Order = {
   trackingSteps: TrackingStep[];
   rider?: OrderRider | null;
   deliveryAddress?: OrderDeliveryAddress | null;
+  payment?: OrderPaymentSummary;
 };

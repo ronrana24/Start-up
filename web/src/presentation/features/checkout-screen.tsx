@@ -5,7 +5,6 @@ import { cartTotalCents } from "@domain/cart";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
-import { Input } from "@presentation/components/ui/input";
 import { useAppDependencies } from "@presentation/context/app-dependencies-context";
 import { usePlaceOrderMutation } from "@presentation/hooks/use-place-order-mutation";
 import { cn } from "@presentation/lib/cn";
@@ -15,26 +14,67 @@ import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
-const EST_TAX_RATE = 0.082;
 const EMPTY_ADDRESSES: UserAddress[] = [];
+function positiveEnvNumber(
+  value: string | undefined,
+  fallback: number,
+): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const PARTIAL_PAYMENT_THRESHOLD_CENTS =
+  positiveEnvNumber(
+    process.env.NEXT_PUBLIC_PARTIAL_PAYMENT_THRESHOLD_INR,
+    5000,
+  ) * 100;
+const PARTIAL_PAYMENT_PERCENT = positiveEnvNumber(
+  process.env.NEXT_PUBLIC_PARTIAL_PAYMENT_PERCENT,
+  20,
+);
 
 type CheckoutStep = 1 | 2;
-type PaymentMode = "upi" | "cod";
-type DeliverySlot = "morning" | "afternoon";
+type PaymentOption = "FULL_UPI" | "PARTIAL_UPI";
 
-type DeliveryDateOption = {
-  id: string;
-  dayLabel: string;
-  dateLabel: string;
+type RazorpayCheckoutOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  method?: Record<string, boolean>;
+  handler: (response: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => void;
+  modal?: { ondismiss?: () => void };
+  theme?: { color?: string };
 };
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayCheckoutOptions) => {
+      open: () => void;
+      on: (
+        event: "payment.failed",
+        handler: (response: {
+          error?: {
+            code?: string;
+            description?: string;
+            metadata?: {
+              order_id?: string;
+              payment_id?: string;
+            };
+          };
+        }) => void,
+      ) => void;
+    };
+  }
+}
 
 function LocationIcon({ className }: { className?: string }) {
   return (
@@ -50,24 +90,6 @@ function LocationIcon({ className }: { className?: string }) {
     >
       <path d="M12 21s-8-4.5-8-11.8A8 8 0 0 1 12 3a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8Z" />
       <circle cx="12" cy="10" r="3" />
-    </svg>
-  );
-}
-
-function CalendarDayIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" />
-      <path d="M16 2v4M8 2v4M3 10h18" />
     </svg>
   );
 }
@@ -233,29 +255,33 @@ function CheckoutProgress({
   );
 }
 
-function buildDeliveryDateOptions(): DeliveryDateOption[] {
-  const out: DeliveryDateOption[] = [];
-  const base = new Date();
-  base.setHours(12, 0, 0, 0);
-  for (let i = 1; i <= 5; i++) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + i);
-    const wd = d.toLocaleDateString("en-US", { weekday: "short" });
-    const md = d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-    out.push({
-      id: d.toISOString().slice(0, 10),
-      dayLabel: i === 1 ? "Tomorrow" : wd,
-      dateLabel: md,
-    });
-  }
-  return out;
-}
-
 function formatAddressLine(address: UserAddress): string {
   return `${address.city}, ${address.state} ${address.pincode}`;
+}
+
+function loadRazorpayScript(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]',
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Could not load UPI checkout")),
+        { once: true },
+      );
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load UPI checkout"));
+    document.body.appendChild(script);
+  });
 }
 
 export function CheckoutScreen() {
@@ -277,28 +303,9 @@ export function CheckoutScreen() {
   );
   const [addressesLoading, setAddressesLoading] = useState(false);
   const [addressesError, setAddressesError] = useState<string | null>(null);
-
-  const deliveryDatesRef = useRef<DeliveryDateOption[] | null>(null);
-  const deliveryDates = useSyncExternalStore(
-    () => () => {},
-    (): DeliveryDateOption[] | null => {
-      if (deliveryDatesRef.current === null) {
-        deliveryDatesRef.current = buildDeliveryDateOptions();
-      }
-      return deliveryDatesRef.current;
-    },
-    (): DeliveryDateOption[] | null => null,
-  );
-  const [deliveryDateId, setDeliveryDateId] = useState<string | null>(null);
-  const [deliverySlot, setDeliverySlot] = useState<DeliverySlot>("morning");
-  const [paymentMode, setPaymentMode] = useState<PaymentMode>("cod");
-  const [upiId, setUpiId] = useState("");
-  const [poNumber, setPoNumber] = useState("");
+  const [paymentOption, setPaymentOption] = useState<PaymentOption>("FULL_UPI");
   const [orderNotes, setOrderNotes] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
-
-  const effectiveDeliveryDateId =
-    deliveryDateId ?? deliveryDates?.[0]?.id ?? null;
 
   const itemCount = useMemo(
     () => lines.reduce((n, l) => n + l.quantity, 0),
@@ -306,8 +313,17 @@ export function CheckoutScreen() {
   );
   const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
-  const estTaxCents = Math.round(subtotalCents * EST_TAX_RATE);
-  const totalWithTaxCents = subtotalCents + estTaxCents;
+  const totalCents = subtotalCents;
+  const partialEligible = totalCents > PARTIAL_PAYMENT_THRESHOLD_CENTS;
+  const effectivePaymentOption: PaymentOption = partialEligible
+    ? paymentOption
+    : "FULL_UPI";
+  const partialNowCents = Math.ceil(
+    (totalCents * PARTIAL_PAYMENT_PERCENT) / 100,
+  );
+  const payNowCents =
+    effectivePaymentOption === "PARTIAL_UPI" ? partialNowCents : totalCents;
+  const deliveryDueCents = Math.max(0, totalCents - payNowCents);
 
   useEffect(() => {
     if (!hasCheckedSession || !isAuthenticated) return;
@@ -371,17 +387,6 @@ export function CheckoutScreen() {
       null,
     [checkoutAddresses, selectedAddressId],
   );
-
-  const selectedDateLabel = useMemo(() => {
-    if (!deliveryDates || !effectiveDeliveryDateId) return "—";
-    const o = deliveryDates.find((d) => d.id === effectiveDeliveryDateId);
-    return o ? `${o.dateLabel} (${o.dayLabel})` : "—";
-  }, [deliveryDates, effectiveDeliveryDateId]);
-
-  const slotLabel =
-    deliverySlot === "morning"
-      ? "Morning (8am – 12pm)"
-      : "Afternoon (1pm – 5pm)";
 
   const uid = userId;
 
@@ -451,8 +456,13 @@ export function CheckoutScreen() {
       setStep(1);
       return;
     }
+    if (effectivePaymentOption === "PARTIAL_UPI" && !partialEligible) {
+      setError("Partial payment is available only for orders above ₹5,000.");
+      setStep(1);
+      return;
+    }
     try {
-      const order = await mutation.mutateAsync({
+      const result = await mutation.mutateAsync({
         userId: uid,
         lines: lines.map((l) => ({
           productId: l.productId,
@@ -462,12 +472,82 @@ export function CheckoutScreen() {
         })),
         addressId: selectedAddress.id,
         deliveryType: "STANDARD",
+        paymentOption: effectivePaymentOption,
+        orderNotes: orderNotes.trim() || undefined,
       });
+      const order = await completeUpiPayment(result);
       clearCart();
       router.push(`/orders/${order.id}/confirmation`);
     } catch (err) {
       setError(domainErrorMessage(err, "Checkout failed"));
     }
+  }
+
+  async function completeUpiPayment(
+    result: Awaited<ReturnType<typeof mutation.mutateAsync>>,
+  ) {
+    const payment = result.payment;
+    if (payment.demo) {
+      return deps.orderWriter.verifyOrderPayment({
+        razorpayOrderId: payment.razorpayOrderId,
+        razorpayPaymentId: `pay_demo_${result.order.id}`,
+        razorpaySignature: "demo",
+      });
+    }
+    await loadRazorpayScript();
+    if (!window.Razorpay) {
+      throw new Error("UPI checkout could not be started.");
+    }
+    const Razorpay = window.Razorpay;
+    return new Promise<typeof result.order>((resolve, reject) => {
+      const razorpay = new Razorpay({
+        key: payment.keyId,
+        amount: payment.amountPaise,
+        currency: payment.currency,
+        name: payment.name,
+        description: payment.description,
+        order_id: payment.razorpayOrderId,
+        method: {
+          upi: true,
+          card: false,
+          netbanking: false,
+          wallet: false,
+          paylater: false,
+        },
+        theme: { color: "#1F7A63" },
+        modal: {
+          ondismiss: () => {
+            void deps.orderWriter.markOrderPaymentFailed({
+              razorpayOrderId: payment.razorpayOrderId,
+              errorCode: "CHECKOUT_CANCELLED",
+              errorDescription: "UPI payment was cancelled.",
+            });
+            reject(new Error("UPI payment was cancelled."));
+          },
+        },
+        handler: (response) => {
+          deps.orderWriter
+            .verifyOrderPayment({
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            })
+            .then(resolve)
+            .catch(reject);
+        },
+      });
+      razorpay.on("payment.failed", (response) => {
+        void deps.orderWriter.markOrderPaymentFailed({
+          razorpayOrderId:
+            response.error?.metadata?.order_id ?? payment.razorpayOrderId,
+          razorpayPaymentId: response.error?.metadata?.payment_id,
+          errorCode: response.error?.code,
+          errorDescription: response.error?.description,
+        });
+        reject(new Error(response.error?.description ?? "UPI payment failed."));
+      });
+      razorpay.open();
+    });
   }
 
   function onHeaderBack() {
@@ -593,174 +673,106 @@ export function CheckoutScreen() {
                   {checkoutAddressesError}
                 </p>
               ) : null}
-
-              <h2 className="mb-3 mt-5 flex items-center gap-2 text-sm font-bold text-heading">
-                <CalendarDayIcon className="text-primary" />
-                Delivery date &amp; time
-              </h2>
-              {!deliveryDates ? (
-                <p className="text-xs text-muted">Loading delivery options…</p>
-              ) : (
-                <>
-                  <div className="no-scrollbar mb-3 flex gap-2 overflow-x-auto pb-2">
-                    {deliveryDates.map((d) => {
-                      const selected = effectiveDeliveryDateId === d.id;
-                      return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => setDeliveryDateId(d.id)}
-                          className={cn(
-                            "flex min-w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-lg border p-2 text-center transition-opacity",
-                            selected
-                              ? "border-primary bg-primary text-white shadow-sm"
-                              : "border-default bg-secondary-bg/80 text-heading opacity-80 hover:opacity-100",
-                          )}
-                        >
-                          <span className="text-[10px] font-medium uppercase">
-                            {d.dayLabel}
-                          </span>
-                          <span className="text-sm font-bold">
-                            {d.dateLabel}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDeliverySlot("morning")}
-                      className={cn(
-                        "relative rounded-lg border p-2 text-center text-[11px] font-semibold transition-opacity",
-                        deliverySlot === "morning"
-                          ? "border-primary/40 bg-primary-light text-primary"
-                          : "border-default bg-secondary-bg/80 text-heading opacity-80 hover:opacity-100",
-                      )}
-                    >
-                      {deliverySlot === "morning" ? (
-                        <CheckIcon className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2" />
-                      ) : null}
-                      Morning (8am – 12pm)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeliverySlot("afternoon")}
-                      className={cn(
-                        "rounded-lg border p-2 text-center text-[11px] font-medium transition-opacity",
-                        deliverySlot === "afternoon"
-                          ? "border-primary/40 bg-primary-light text-primary"
-                          : "border-default bg-secondary-bg/80 text-heading opacity-80 hover:opacity-100",
-                      )}
-                    >
-                      Afternoon (1pm – 5pm)
-                    </button>
-                  </div>
-                </>
-              )}
             </section>
 
             <section className="border-b border-default/50 bg-card px-4 py-4">
               <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
                 <CardPayIcon className="text-primary" />
-                Payment method
+                UPI payment
               </h2>
-              <div className="mb-4 flex flex-col gap-2">
-                <label
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between rounded-[10px] border p-3",
-                    paymentMode === "upi"
-                      ? "border-primary/40 bg-primary-light/40"
-                      : "border-default bg-secondary-bg/60",
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={cn(
-                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                        paymentMode === "upi"
-                          ? "border-primary"
-                          : "border-default",
-                      )}
-                    >
-                      {paymentMode === "upi" ? (
-                        <span className="h-2 w-2 rounded-full bg-primary" />
-                      ) : null}
-                    </span>
-                    <div>
-                      <span className="block text-xs font-bold text-heading">
-                        UPI
-                      </span>
-                      <span className="text-[10px] text-muted">
-                        Pay with UPI (demo — not charged)
-                      </span>
-                    </div>
-                  </div>
-                  <input
-                    type="radio"
-                    name="pay"
-                    className="sr-only"
-                    checked={paymentMode === "upi"}
-                    onChange={() => setPaymentMode("upi")}
-                  />
-                </label>
-                <label
-                  className={cn(
-                    "flex cursor-pointer items-center justify-between rounded-[10px] border p-3",
-                    paymentMode === "cod"
-                      ? "border-primary/40 bg-primary-light/40"
-                      : "border-default bg-secondary-bg/60",
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={cn(
-                        "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                        paymentMode === "cod"
-                          ? "border-primary"
-                          : "border-default",
-                      )}
-                    >
-                      {paymentMode === "cod" ? (
-                        <span className="h-2 w-2 rounded-full bg-primary" />
-                      ) : null}
-                    </span>
-                    <div>
-                      <span className="block text-xs font-bold text-heading">
-                        Cash on delivery
-                      </span>
-                      <span className="text-[10px] text-muted">
-                        Pay when your order arrives
-                      </span>
-                    </div>
-                  </div>
-                  <input
-                    type="radio"
-                    name="pay"
-                    className="sr-only"
-                    checked={paymentMode === "cod"}
-                    onChange={() => setPaymentMode("cod")}
-                  />
-                </label>
+              <div className="mb-4 rounded-[10px] border border-primary/20 bg-primary-light/30 p-3">
+                <p className="text-xs font-bold text-heading">
+                  Secure Razorpay UPI checkout
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-secondary">
+                  Pay by any UPI app. Card, wallet, net banking, and cash
+                  checkout options are disabled for a faster order flow.
+                </p>
               </div>
-              {paymentMode === "upi" ? (
-                <div className="mb-4">
-                  <Input
-                    label="UPI ID (optional)"
-                    placeholder="you@upi"
-                    value={upiId}
-                    onChange={(e) => setUpiId(e.target.value)}
-                    autoComplete="off"
-                  />
+              <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentOption("FULL_UPI")}
+                  className={cn(
+                    "flex min-h-24 flex-col justify-between rounded-[10px] border p-3 text-left transition-colors",
+                    effectivePaymentOption === "FULL_UPI"
+                      ? "border-primary bg-primary-light/50 shadow-sm"
+                      : "border-default bg-secondary-bg/70 hover:border-primary/30",
+                  )}
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-black text-heading">
+                      Pay full via UPI
+                    </span>
+                    {effectivePaymentOption === "FULL_UPI" ? (
+                      <CheckIcon className="text-primary" />
+                    ) : null}
+                  </span>
+                  <span className="mt-3 text-lg font-black text-primary">
+                    {formatMoney(totalCents, cartCurrency)}
+                  </span>
+                  <span className="text-[10px] text-muted">
+                    No payment due at delivery
+                  </span>
+                </button>
+                {partialEligible ? (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentOption("PARTIAL_UPI")}
+                    className={cn(
+                      "flex min-h-24 flex-col justify-between rounded-[10px] border p-3 text-left transition-colors",
+                      effectivePaymentOption === "PARTIAL_UPI"
+                        ? "border-primary bg-primary-light/50 shadow-sm"
+                        : "border-default bg-secondary-bg/70 hover:border-primary/30",
+                    )}
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-black text-heading">
+                        Pay partial now
+                      </span>
+                      {effectivePaymentOption === "PARTIAL_UPI" ? (
+                        <CheckIcon className="text-primary" />
+                      ) : null}
+                    </span>
+                    <span className="mt-3 text-lg font-black text-primary">
+                      {formatMoney(partialNowCents, cartCurrency)}
+                    </span>
+                    <span className="text-[10px] text-muted">
+                      {PARTIAL_PAYMENT_PERCENT}% now,{" "}
+                      {formatMoney(totalCents - partialNowCents, cartCurrency)}{" "}
+                      at delivery
+                    </span>
+                  </button>
+                ) : (
+                  <div className="rounded-[10px] border border-dashed border-default bg-secondary-bg/60 p-3 text-[11px] leading-relaxed text-secondary">
+                    Partial payment becomes available above{" "}
+                    {formatMoney(PARTIAL_PAYMENT_THRESHOLD_CENTS, cartCurrency)}
+                    . This order is UPI full payment only.
+                  </div>
+                )}
+              </div>
+              <div className="mb-4 grid grid-cols-2 gap-2 rounded-[10px] border border-default/70 bg-secondary-bg/70 p-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                    Pay now
+                  </p>
+                  <p className="mt-1 text-sm font-black text-heading">
+                    {formatMoney(payNowCents, cartCurrency)}
+                  </p>
                 </div>
-              ) : null}
-              <div className="mb-4">
-                <Input
-                  label="Purchase order number (optional)"
-                  placeholder="e.g. PO-2023-1024"
-                  value={poNumber}
-                  onChange={(e) => setPoNumber(e.target.value)}
-                />
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                    Due at delivery
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-sm font-black",
+                      deliveryDueCents > 0 ? "text-amber-700" : "text-success",
+                    )}
+                  >
+                    {formatMoney(deliveryDueCents, cartCurrency)}
+                  </p>
+                </div>
               </div>
               <label className="flex w-full flex-col gap-1.5 text-sm">
                 <span className="font-medium text-heading">Order notes</span>
@@ -898,18 +910,6 @@ export function CheckoutScreen() {
                   ) : (
                     <p className="text-secondary">No address selected</p>
                   )}
-                  <div className="mt-2 flex justify-between border-t border-default/50 pt-2">
-                    <span className="text-muted">
-                      Date:{" "}
-                      <strong className="text-heading">
-                        {selectedDateLabel}
-                      </strong>
-                    </span>
-                    <span className="text-muted">
-                      Time:{" "}
-                      <strong className="text-heading">{slotLabel}</strong>
-                    </span>
-                  </div>
                 </div>
               </div>
               <div>
@@ -933,19 +933,19 @@ export function CheckoutScreen() {
                     </div>
                     <div>
                       <p className="text-[11px] font-semibold text-heading">
-                        {paymentMode === "upi" ? "UPI" : "Cash on delivery"}
+                        {effectivePaymentOption === "PARTIAL_UPI"
+                          ? "Partial UPI payment"
+                          : "Full UPI payment"}
                       </p>
-                      {paymentMode === "upi" && upiId.trim() ? (
-                        <p className="text-[9px] text-muted">
-                          VPA: {upiId.trim()}
-                        </p>
-                      ) : poNumber.trim() ? (
-                        <p className="text-[9px] text-muted">
-                          PO: {poNumber.trim()}
-                        </p>
-                      ) : (
-                        <p className="text-[9px] text-muted">No PO on file</p>
-                      )}
+                      <p className="text-[9px] text-muted">
+                        Pay now {formatMoney(payNowCents, cartCurrency)}
+                        {deliveryDueCents > 0
+                          ? ` · Collect ${formatMoney(
+                              deliveryDueCents,
+                              cartCurrency,
+                            )} at delivery`
+                          : " · Nothing due at delivery"}
+                      </p>
                     </div>
                   </div>
                   <CheckIcon className="h-4 w-4 text-primary" />
@@ -1007,16 +1007,31 @@ export function CheckoutScreen() {
           </span>
           <span className="text-sm font-semibold text-success">Free</span>
         </div>
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-xs font-medium text-muted">Est. taxes</span>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted">Pay now</span>
           <span className="text-sm font-semibold text-heading">
-            {formatMoney(estTaxCents, cartCurrency)}
+            {formatMoney(payNowCents, cartCurrency)}
+          </span>
+        </div>
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted">
+            Due at delivery
+          </span>
+          <span
+            className={cn(
+              "text-sm font-semibold",
+              deliveryDueCents > 0 ? "text-amber-700" : "text-success",
+            )}
+          >
+            {deliveryDueCents > 0
+              ? formatMoney(deliveryDueCents, cartCurrency)
+              : "None"}
           </span>
         </div>
         <div className="mb-4 flex items-center justify-between border-t border-default/40 pt-2">
           <span className="text-sm font-bold text-heading">Total</span>
           <span className="text-xl font-bold text-primary">
-            {formatMoney(totalWithTaxCents, cartCurrency)}
+            {formatMoney(totalCents, cartCurrency)}
           </span>
         </div>
         {error ? (
@@ -1050,16 +1065,16 @@ export function CheckoutScreen() {
               )}
             >
               {mutation.isPending ? (
-                "Placing order…"
+                "Starting UPI checkout…"
               ) : termsAccepted ? (
                 <>
                   <CheckIcon className="h-4 w-4" />
-                  Place order
+                  Pay {formatMoney(payNowCents, cartCurrency)} via UPI
                 </>
               ) : (
                 <>
                   <LockIcon className="h-3.5 w-3.5 opacity-80" />
-                  Place order
+                  Pay via UPI
                 </>
               )}
             </Button>

@@ -121,6 +121,20 @@ public final class Dtos {
         }
     }
 
+    public static final class RecordCollectionRequest {
+        public final String method;
+        public final String amount;
+        public final String reference;
+        public final String note;
+
+        public RecordCollectionRequest(String method, String amount, String reference, String note) {
+            this.method = method;
+            this.amount = amount;
+            this.reference = reference;
+            this.note = note;
+        }
+    }
+
     public static final class PatchLocationRequest {
         public final double lat;
         public final double lng;
@@ -224,6 +238,14 @@ public final class Dtos {
         public String deliveryFee;
         public String subtotalAmount;
         public String totalAmount;
+        public String paymentMode;
+        public String paymentStatus;
+        public String paidAmount;
+        public String dueAmount;
+        public boolean paymentCollectionRequired;
+        public String collectionStatus;
+        public String collectionMethod;
+        public String collectionInstructions;
         public JsonElement addressSnapshot;
         public RiderDto rider;
         public UserDto user;
@@ -335,6 +357,14 @@ public final class Dtos {
 
     public static String total(OrderDto order) {
         return money(order == null ? null : order.totalAmount);
+    }
+
+    public static String paid(OrderDto order) {
+        return money(order == null ? null : order.paidAmount);
+    }
+
+    public static String due(OrderDto order) {
+        return money(order == null ? null : order.dueAmount);
     }
 
     public static String createdAtLabel(OrderDto order) {

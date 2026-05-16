@@ -39,6 +39,31 @@ enum RiderStatus {
   BUSY
 }
 
+enum PaymentMode {
+  UPI
+  PARTIAL_UPI
+  LEGACY
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  FAILED
+}
+
+enum CollectionStatus {
+  NOT_REQUIRED
+  PENDING
+  COLLECTED
+  WAIVED
+}
+
+enum CollectionMethod {
+  CASH
+  UPI_AT_DELIVERY
+}
+
 enum BusinessType {
   FOOD_AND_BEVERAGE
   HEALTHCARE_AND_MEDICAL
@@ -132,30 +157,113 @@ model Inventory {
 }
 
 model Order {
-  id                 String       @id @default(cuid())
-  userId             String
-  user               User         @relation(fields: [userId], references: [id])
-  items              OrderItem[]
-  status             OrderStatus  @default(PLACED)
-  deliveryType       DeliveryType
-  deliveryFee        Decimal      @db.Decimal(12, 2)
-  subtotalAmount     Decimal      @db.Decimal(12, 2)
-  totalAmount        Decimal      @db.Decimal(12, 2)
-  addressSnapshot    Json
-  riderId            String?
-  rider              Rider?       @relation(fields: [riderId], references: [id])
-  pickedUpAt         DateTime?
-  deliveredAt        DateTime?
-  deliveryDistanceKm Decimal?     @db.Decimal(8, 2)
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  id                        String                   @id @default(cuid())
+  userId                    String
+  user                      User                     @relation(fields: [userId], references: [id])
+  items                     OrderItem[]
+  status                    OrderStatus              @default(PLACED)
+  deliveryType              DeliveryType
+  deliveryFee               Decimal                  @db.Decimal(12, 2)
+  subtotalAmount            Decimal                  @db.Decimal(12, 2)
+  totalAmount               Decimal                  @db.Decimal(12, 2)
+  addressSnapshot           Json
+  paymentMode               PaymentMode              @default(UPI)
+  paymentStatus             PaymentStatus            @default(PENDING)
+  paidAmount                Decimal                  @default(0) @db.Decimal(12, 2)
+  dueAmount                 Decimal                  @default(0) @db.Decimal(12, 2)
+  paymentCollectionRequired Boolean                  @default(false)
+  collectionStatus          CollectionStatus         @default(NOT_REQUIRED)
+  collectionMethod          CollectionMethod?
+  collectionInstructions    String?
+  paymentTransactions       PaymentTransaction[]
+  paymentAudits             PaymentAudit[]
+  collectionEvents          RiderPaymentCollection[]
+  riderId                   String?
+  rider                     Rider?                   @relation(fields: [riderId], references: [id])
+  pickedUpAt                DateTime?
+  deliveredAt               DateTime?
+  deliveryDistanceKm        Decimal?                 @db.Decimal(8, 2)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
 
   @@index([userId])
   @@index([status])
+  @@index([paymentStatus])
+  @@index([paymentCollectionRequired, collectionStatus])
   @@index([deliveryType])
   @@index([riderId])
   @@index([riderId, status])
   @@index([riderId, status, updatedAt])
+}
+
+model PaymentTransaction {
+  id                String        @id @default(cuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String        @default("razorpay")
+  razorpayOrderId   String?       @unique
+  razorpayPaymentId String?       @unique
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String        @default("INR")
+  status            PaymentStatus @default(PENDING)
+  idempotencyKey    String        @unique
+  errorCode         String?
+  errorDescription  String?
+  metadata          Json?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PaymentWebhookEvent {
+  id          String    @id @default(cuid())
+  provider    String    @default("razorpay")
+  eventId     String    @unique
+  eventType   String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model PaymentAudit {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  eventType      String
+  message        String
+  amount         Decimal? @db.Decimal(12, 2)
+  previousStatus String?
+  nextStatus     String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([orderId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model RiderPaymentCollection {
+  id          String           @id @default(cuid())
+  orderId     String
+  order       Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId     String
+  rider       Rider            @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  amount      Decimal          @db.Decimal(12, 2)
+  method      CollectionMethod
+  reference   String?
+  note        String?
+  collectedAt DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+
+  @@index([orderId])
+  @@index([riderId])
+  @@index([collectedAt])
 }
 
 model OrderItem {
@@ -228,6 +336,7 @@ model Rider {
   currentLocation Json?
   orders          Order[]
   devices         RiderDevice[]
+  collections     RiderPaymentCollection[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

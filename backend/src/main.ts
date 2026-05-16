@@ -2,6 +2,7 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
+import { raw } from 'express';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
@@ -31,6 +32,7 @@ async function bootstrap() {
     exposedHeaders: ['X-Request-Id'],
     credentials: true,
   });
+  app.use('/api/payments/razorpay/webhook', raw({ type: 'application/json' }));
   app.use(cookieParser());
   app.use(requestIdMiddleware);
   app.setGlobalPrefix('api');

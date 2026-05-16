@@ -18,6 +18,7 @@ import { PatchRiderLocationDto } from './dto/patch-rider-location.dto';
 import { PatchRiderStatusDto } from './dto/patch-rider-status.dto';
 import { QueryAvailableOrdersDto } from './dto/query-available-orders.dto';
 import { QueryRiderOrderHistoryDto } from './dto/query-rider-order-history.dto';
+import { RecordPaymentCollectionDto } from './dto/record-payment-collection.dto';
 import { RegisterRiderDeviceDto } from './dto/register-rider-device.dto';
 import { RidersService } from './riders.service';
 
@@ -104,6 +105,16 @@ export class RidersController {
     @Body() dto: PatchDeliveryStatusDto,
   ) {
     return this.riders.patchDeliveryStatus(user, id, dto);
+  }
+
+  @Post('orders/:id/collection')
+  @Roles(UserRole.RIDER)
+  recordPaymentCollection(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: RecordPaymentCollectionDto,
+  ) {
+    return this.riders.recordPaymentCollection(user, id, dto);
   }
 
   @Patch('me/location')

@@ -2885,10 +2885,27 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(detailRow("Delivery fee", moneyLabel(order == null ? null : order.deliveryFee)));
         Ui.gap(body, 8);
         body.addView(detailRow("Buyer order total", moneyLabel(order == null ? null : order.totalAmount)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Paid online", Dtos.paid(order)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Collect on delivery", Dtos.due(order)));
+        Ui.gap(body, 8);
+        body.addView(detailRow("Payment mode", paymentModeLabel(order)));
+        if (order != null && order.collectionInstructions != null && !order.collectionInstructions.trim().isEmpty()) {
+            Ui.gap(body, 8);
+            body.addView(orderDetailsNotice(order.collectionInstructions, Color.parseColor("#C2410C"), Color.parseColor("#FFF7ED")));
+        }
         return body;
     }
 
     private View orderDetailsActions(Dtos.OrderDto order) {
+        LinearLayout root = Ui.vertical(this);
+        if (orderRequiresCollection(order)) {
+            MaterialButton collect = Ui.button(this, "Record payment collection");
+            bindAction(collect, () -> showPaymentCollectionDialog(order, () -> fetchOrderDetails(order.id)));
+            root.addView(collect);
+            Ui.gap(root, 8);
+        }
         LinearLayout buttons = Ui.horizontal(this);
         MaterialButton navigate = Ui.button(this, "Navigate");
         navigate.setLayoutParams(weightedButtonParams());
@@ -2899,7 +2916,8 @@ public final class MainActivity extends AppCompatActivity {
         buttons.addView(navigate);
         Ui.gap(buttons, 8);
         buttons.addView(preview);
-        return buttons;
+        root.addView(buttons);
+        return root;
     }
 
     private LinearLayout detailSection(String title) {
@@ -3064,6 +3082,76 @@ public final class MainActivity extends AppCompatActivity {
             return Color.parseColor("#FFEDD5");
         }
         return Ui.PRIMARY_LIGHT;
+    }
+
+    private String paymentSummaryLine(Dtos.OrderDto order) {
+        if (order == null) {
+            return "Payment: pending";
+        }
+        if (orderRequiresCollection(order)) {
+            return "Payment: " + Dtos.paid(order) + " paid • collect " + Dtos.due(order);
+        }
+        return "Payment: " + paymentModeLabel(order) + " • " + Dtos.paid(order) + " paid";
+    }
+
+    private String paymentModeLabel(Dtos.OrderDto order) {
+        String mode = order == null ? null : order.paymentMode;
+        if ("PARTIAL_UPI".equals(mode)) {
+            return "Partial UPI";
+        }
+        if ("LEGACY".equals(mode)) {
+            return "Legacy paid";
+        }
+        return "UPI";
+    }
+
+    private boolean orderRequiresCollection(Dtos.OrderDto order) {
+        if (order == null) {
+            return false;
+        }
+        if (!order.paymentCollectionRequired) {
+            return false;
+        }
+        if ("COLLECTED".equals(order.collectionStatus) || "NOT_REQUIRED".equals(order.collectionStatus)) {
+            return false;
+        }
+        return parseMoney(order.dueAmount) > 0d;
+    }
+
+    private void showPaymentCollectionDialog(Dtos.OrderDto order, Runnable afterRecorded) {
+        if (order == null || order.id == null) {
+            return;
+        }
+        String amount = order.dueAmount == null || order.dueAmount.trim().isEmpty() ? "0" : order.dueAmount.trim();
+        new AlertDialog.Builder(this)
+                .setTitle("Collect payment at delivery")
+                .setMessage("Collect " + Dtos.due(order) + " from the buyer before marking this order delivered.")
+                .setPositiveButton("Collected cash", (dialog, which) -> recordPaymentCollection(order, "CASH", amount, afterRecorded))
+                .setNegativeButton("Collected UPI", (dialog, which) -> recordPaymentCollection(order, "UPI_AT_DELIVERY", amount, afterRecorded))
+                .setNeutralButton("Cancel", null)
+                .show();
+    }
+
+    private void recordPaymentCollection(Dtos.OrderDto order, String method, String amount, Runnable afterRecorded) {
+        repository.recordCollection(order.id, method, amount, null, "Recorded by rider app", new UiResult<Dtos.OrderDto>() {
+            @Override
+            public void success(Dtos.OrderDto value) {
+                upsertActiveOrder(value);
+                Toast.makeText(MainActivity.this, "Payment collection recorded", Toast.LENGTH_SHORT).show();
+                if (afterRecorded != null) {
+                    afterRecorded.run();
+                }
+            }
+
+            @Override
+            public void error(RiderRepository.ApiFailure failure) {
+                Toast.makeText(MainActivity.this, friendlyFailure(failure, "Could not record payment collection"), Toast.LENGTH_LONG).show();
+                if (orderDetailsSheetContent != null) {
+                    orderDetailsError = friendlyFailure(failure, "Could not record payment collection");
+                    renderOrderDetailsSheet(cachedOrderDetails(order.id), false, orderDetailsError);
+                }
+            }
+        });
     }
 
     private void autoSelectActiveOrder() {
@@ -3390,6 +3478,7 @@ public final class MainActivity extends AppCompatActivity {
         body.addView(Ui.text(this, "Drop: " + Dtos.deliveryAddress(order), 14, Typeface.NORMAL));
         body.addView(Ui.text(this, "Route: " + offerDistanceEta(order), 13, Typeface.BOLD));
         body.addView(Ui.text(this, "Payout: " + Dtos.payout(order), 14, Typeface.BOLD));
+        body.addView(Ui.text(this, paymentSummaryLine(order), 13, Typeface.BOLD));
         Ui.gap(body, 8);
 
         MaterialButton dropNav = Ui.button(this, "Navigate to drop");
@@ -3407,7 +3496,13 @@ public final class MainActivity extends AppCompatActivity {
         String next = Dtos.nextRiderStatus(order);
         if (next != null) {
             MaterialButton transition = Ui.button(this, "Mark " + Dtos.statusLabel(next));
-            bindAction(transition, () -> patchStatus(order, next));
+            bindAction(transition, () -> {
+                if ("DELIVERED".equals(next) && orderRequiresCollection(order)) {
+                    showPaymentCollectionDialog(order, () -> patchStatus(order, next));
+                    return;
+                }
+                patchStatus(order, next);
+            });
             body.addView(transition);
         }
         card.addView(body);

@@ -11,10 +11,15 @@ export function usePlaceOrderMutation(userId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: PlaceOrderInput) => placeOrder(deps, input),
-    onSuccess: (order) => {
+    onSuccess: (result) => {
       if (userId) {
-        queryClient.setQueryData(queryKeys.order(userId, order.id), order);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.orders(userId) });
+        queryClient.setQueryData(
+          queryKeys.order(userId, result.order.id),
+          result.order,
+        );
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.orders(userId),
+        });
       }
     },
   });

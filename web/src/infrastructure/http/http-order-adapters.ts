@@ -3,8 +3,11 @@ import type {
   OrderReader,
 } from "@application/ports/order-reader";
 import type {
+  OrderPaymentCheckout,
   OrderWriter,
   PlaceOrderInput,
+  PlaceOrderResult,
+  VerifyOrderPaymentInput,
 } from "@application/ports/order-writer";
 import type { Order, OrderStatus } from "@domain/order";
 import type { Coordinates, OrderDeliveryAddress } from "@domain/order";
@@ -32,15 +35,31 @@ type ApiOrder = {
   userId: string;
   status: string;
   totalAmount: string | number;
+  paymentMode?: string;
+  paymentStatus?: string;
+  paidAmount?: string | number;
+  dueAmount?: string | number;
+  paymentCollectionRequired?: boolean;
+  collectionStatus?: string;
   addressSnapshot?: unknown;
   rider?: ApiRider | null;
   createdAt: string;
   items: ApiOrderItem[];
 };
+type ApiPlaceOrderResponse = {
+  order: ApiOrder;
+  payment: OrderPaymentCheckout;
+};
 type ApiOrderSummary = {
   orderId: string;
   orderAmount: string | number;
   orderDate: string;
+  paymentMode?: string;
+  paymentStatus?: string;
+  paidAmount?: string | number;
+  dueAmount?: string | number;
+  paymentCollectionRequired?: boolean;
+  collectionStatus?: string;
   items: Array<{
     productId?: string;
     name: string;
@@ -134,6 +153,14 @@ function mapOrder(order: ApiOrder, input?: PlaceOrderInput): Order {
     userId: order.userId,
     createdAt: order.createdAt,
     totalCents: priceToCents(order.totalAmount),
+    payment: {
+      mode: order.paymentMode ?? "UPI",
+      status: order.paymentStatus ?? "PENDING",
+      paidCents: priceToCents(order.paidAmount ?? 0),
+      dueCents: priceToCents(order.dueAmount ?? 0),
+      collectionRequired: Boolean(order.paymentCollectionRequired),
+      collectionStatus: order.collectionStatus ?? "NOT_REQUIRED",
+    },
     status,
     trackingSteps: buildTrackingSteps(status),
     rider: order.rider
@@ -162,7 +189,7 @@ function mapOrder(order: ApiOrder, input?: PlaceOrderInput): Order {
 
 export function createHttpOrderWriter(baseUrl: string): OrderWriter {
   return {
-    async placeOrder(input: PlaceOrderInput): Promise<Order> {
+    async placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
       let addressId = input.addressId;
       if (!addressId && input.address) {
         const address = unwrapBody(
@@ -178,24 +205,47 @@ export function createHttpOrderWriter(baseUrl: string): OrderWriter {
         throw new Error("Delivery address is required");
       }
 
+      const result = unwrapBody(
+        await apiJsonAuthorized<
+          ApiPlaceOrderResponse | ApiEnvelope<ApiPlaceOrderResponse>
+        >(baseUrl, "/api/orders", {
+          method: "POST",
+          body: {
+            addressId,
+            deliveryType: input.deliveryType ?? "STANDARD",
+            paymentOption: input.paymentOption,
+            orderNotes: input.orderNotes,
+            items: input.lines.map((line) => ({
+              productId: line.productId,
+              quantity: line.quantity,
+            })),
+          },
+        }),
+      );
+      return { order: mapOrder(result.order, input), payment: result.payment };
+    },
+    async verifyOrderPayment(input: VerifyOrderPaymentInput): Promise<Order> {
       const order = unwrapBody(
         await apiJsonAuthorized<ApiOrder | ApiEnvelope<ApiOrder>>(
           baseUrl,
-          "/api/orders",
+          "/api/payments/razorpay/verify",
+          { method: "POST", body: input },
+        ),
+      );
+      return mapOrder(order);
+    },
+    async markOrderPaymentFailed(input): Promise<Order | null> {
+      const order = unwrapBody(
+        await apiJsonAuthorized<ApiOrder | null | ApiEnvelope<ApiOrder | null>>(
+          baseUrl,
+          "/api/payments/razorpay/failure",
           {
             method: "POST",
-            body: {
-              addressId,
-              deliveryType: input.deliveryType ?? "STANDARD",
-              items: input.lines.map((line) => ({
-                productId: line.productId,
-                quantity: line.quantity,
-              })),
-            },
+            body: input,
           },
         ),
       );
-      return mapOrder(order, input);
+      return order ? mapOrder(order) : null;
     },
   };
 }
@@ -219,6 +269,14 @@ export function createHttpOrderReader(baseUrl: string): OrderReader {
           userId,
           createdAt: order.orderDate,
           totalCents: priceToCents(order.orderAmount),
+          payment: {
+            mode: order.paymentMode ?? "UPI",
+            status: order.paymentStatus ?? "PENDING",
+            paidCents: priceToCents(order.paidAmount ?? 0),
+            dueCents: priceToCents(order.dueAmount ?? 0),
+            collectionRequired: Boolean(order.paymentCollectionRequired),
+            collectionStatus: order.collectionStatus ?? "NOT_REQUIRED",
+          },
           status,
           trackingSteps: buildTrackingSteps(status),
           lines: order.items.map((item, index) => ({

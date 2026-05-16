@@ -95,6 +95,14 @@ export type AdminOrder = {
   deliveryFee: string | number;
   subtotalAmount: string | number;
   totalAmount: string | number;
+  paymentMode?: "UPI" | "PARTIAL_UPI" | "LEGACY";
+  paymentStatus?: "PENDING" | "PAID" | "PARTIALLY_PAID" | "FAILED";
+  paidAmount?: string | number;
+  dueAmount?: string | number;
+  paymentCollectionRequired?: boolean;
+  collectionStatus?: "NOT_REQUIRED" | "PENDING" | "COLLECTED" | "WAIVED";
+  collectionMethod?: "CASH" | "UPI_AT_DELIVERY" | null;
+  collectionInstructions?: string | null;
   addressSnapshot?: {
     line1?: string | null;
     line2?: string | null;
@@ -128,6 +136,30 @@ export type AdminOrder = {
       unit: ProductUnit;
       imageUrls?: string[];
     } | null;
+  }>;
+  paymentTransactions?: Array<{
+    id: string;
+    provider: string;
+    razorpayOrderId: string | null;
+    razorpayPaymentId: string | null;
+    amount: string | number;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  paymentAudits?: Array<{
+    id: string;
+    eventType: string;
+    message: string | null;
+    createdAt: string;
+  }>;
+  collectionEvents?: Array<{
+    id: string;
+    method: "CASH" | "UPI_AT_DELIVERY";
+    amount: string | number;
+    reference: string | null;
+    note: string | null;
+    createdAt: string;
   }>;
 };
 

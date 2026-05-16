@@ -1,6 +1,6 @@
 "use client";
 
-import type { Order, OrderLine, OrderStatus } from "@domain/order";
+import type { Order, OrderLine } from "@domain/order";
 import { buildTrackingSteps } from "@infrastructure/mock/order-tracking-factory";
 import { OrderSuccessCheckmark } from "@presentation/components/order/order-success-checkmark";
 import { DownloadOrderInvoiceButton } from "@presentation/components/order/download-order-invoice-button";
@@ -62,11 +62,19 @@ function formatOrderRef(id: string): string {
   return `#ORD-${tail}`;
 }
 
-function paymentLabel(status: OrderStatus): string {
-  if (status === "pending") {
-    return "Pending payment";
+function paymentStatusLabel(status?: string): string {
+  switch (status) {
+    case "PAID":
+      return "Paid";
+    case "PARTIALLY_PAID":
+      return "Partially paid";
+    case "FAILED":
+      return "Payment failed";
+    case "PENDING":
+      return "Pending payment";
+    default:
+      return "Paid";
   }
-  return "Paid";
 }
 
 function TruckDeliveryIcon({ className }: { className?: string }) {
@@ -194,6 +202,9 @@ export function OrderConfirmationScreen() {
 
   const itemCount = data.lines.reduce((n, l) => n + l.quantity, 0);
   const orderRef = formatOrderRef(data.id);
+  const paidCents = data.payment?.paidCents ?? data.totalCents;
+  const dueCents = data.payment?.dueCents ?? 0;
+  const paymentIsComplete = dueCents <= 0;
 
   return (
     <div className="relative -mx-4 flex min-h-[calc(100svh-6rem)] flex-1 flex-col overflow-hidden bg-card shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:border-default lg:min-h-[calc(100svh-8rem)]">
@@ -322,11 +333,21 @@ export function OrderConfirmationScreen() {
             ))}
           </ul>
           <div className="mt-4 flex items-center justify-between border-t border-default pt-3">
-            <span className="text-sm font-bold text-heading">Total paid</span>
+            <span className="text-sm font-bold text-heading">Paid online</span>
             <span className="text-lg font-bold text-primary">
-              {formatMoney(data.totalCents)}
+              {formatMoney(paidCents)}
             </span>
           </div>
+          {dueCents > 0 ? (
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-sm font-bold text-heading">
+                Due at delivery
+              </span>
+              <span className="text-lg font-bold text-amber-700">
+                {formatMoney(dueCents)}
+              </span>
+            </div>
+          ) : null}
         </section>
 
         <section className="border-b border-default/60 bg-secondary-bg/80 px-4 py-4">
@@ -338,10 +359,10 @@ export function OrderConfirmationScreen() {
               <p
                 className={cn(
                   "mt-1 flex items-center gap-1 text-xs font-bold",
-                  data.status === "pending" ? "text-secondary" : "text-success",
+                  paymentIsComplete ? "text-success" : "text-amber-700",
                 )}
               >
-                {data.status !== "pending" ? (
+                {paymentIsComplete ? (
                   <svg
                     width="14"
                     height="14"
@@ -352,12 +373,16 @@ export function OrderConfirmationScreen() {
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
                   </svg>
                 ) : null}
-                {paymentLabel(data.status)}
+                {paymentStatusLabel(data.payment?.status)}
               </p>
             </Card>
             <Card className="border-default/80 p-3 shadow-none">
-              <p className="text-[10px] font-medium text-muted">PO number</p>
-              <p className="mt-1 text-xs font-bold text-heading">—</p>
+              <p className="text-[10px] font-medium text-muted">Payment mode</p>
+              <p className="mt-1 text-xs font-bold text-heading">
+                {data.payment?.mode === "PARTIAL_UPI"
+                  ? "Partial UPI"
+                  : "Full UPI"}
+              </p>
             </Card>
           </div>
           <DownloadOrderInvoiceButton

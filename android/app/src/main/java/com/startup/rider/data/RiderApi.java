@@ -75,6 +75,12 @@ public interface RiderApi {
             @Body Dtos.PatchStatusRequest request
     );
 
+    @POST("/api/riders/orders/{orderId}/collection")
+    Call<Dtos.Envelope<Dtos.OrderDto>> recordCollection(
+            @Path("orderId") String orderId,
+            @Body Dtos.RecordCollectionRequest request
+    );
+
     @PATCH("/api/riders/me/location")
     Call<Dtos.Envelope<Dtos.RiderDto>> patchLocation(@Body Dtos.PatchLocationRequest request);
 }

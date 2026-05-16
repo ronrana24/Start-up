@@ -4,7 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma, RiderStatus, User } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import {
+  CollectionMethod,
+  CollectionStatus,
+  OrderStatus,
+  PaymentStatus,
+  Prisma,
+  RiderStatus,
+  User,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DeliveryEventsService } from '../delivery/delivery-events.service';
 import { OrderListPeriod } from '../orders/dto/list-orders-query.dto';
@@ -12,6 +21,7 @@ import { OrdersService } from '../orders/orders.service';
 import { PatchDeliveryStatusDto } from './dto/patch-delivery-status.dto';
 import { PatchRiderLocationDto } from './dto/patch-rider-location.dto';
 import { PatchRiderStatusDto } from './dto/patch-rider-status.dto';
+import { RecordPaymentCollectionDto } from './dto/record-payment-collection.dto';
 import { RegisterRiderDeviceDto } from './dto/register-rider-device.dto';
 
 const deliveryOrderInclude = {
@@ -72,6 +82,7 @@ export class RidersService {
     private readonly prisma: PrismaService,
     private readonly orders: OrdersService,
     private readonly deliveryEvents: DeliveryEventsService,
+    private readonly config: ConfigService,
   ) {}
 
   list() {
@@ -90,6 +101,7 @@ export class RidersService {
     const where: Prisma.OrderWhereInput = {
       riderId: null,
       status: { in: availableOrderStatuses },
+      paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_PAID] },
     };
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -254,7 +266,12 @@ export class RidersService {
       async (tx) => {
         const existing = await tx.order.findUnique({
           where: { id: orderId },
-          select: { id: true, riderId: true, status: true },
+          select: {
+            id: true,
+            riderId: true,
+            status: true,
+            paymentStatus: true,
+          },
         });
         if (!existing) {
           throw new NotFoundException('Order not found');
@@ -265,12 +282,23 @@ export class RidersService {
         if (!availableOrderStatuses.includes(existing.status)) {
           throw new BadRequestException('Order is not available to claim');
         }
+        if (
+          existing.paymentStatus !== PaymentStatus.PAID &&
+          existing.paymentStatus !== PaymentStatus.PARTIALLY_PAID
+        ) {
+          throw new BadRequestException(
+            'Order payment is not ready for delivery',
+          );
+        }
 
         const claimed = await tx.order.updateMany({
           where: {
             id: orderId,
             riderId: null,
             status: { in: availableOrderStatuses },
+            paymentStatus: {
+              in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_PAID],
+            },
           },
           data: {
             riderId: rider.id,
@@ -318,6 +346,79 @@ export class RidersService {
     }
 
     return this.orders.updateStatus(orderId, dto.status);
+  }
+
+  async recordPaymentCollection(
+    user: User,
+    orderId: string,
+    dto: RecordPaymentCollectionDto,
+  ) {
+    const rider = await this.riderForUser(user);
+    const amount = new Prisma.Decimal(dto.amount).toDecimalPlaces(2);
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, riderId: rider.id },
+    });
+    if (!order) {
+      throw new NotFoundException('Assigned order not found');
+    }
+    if (!order.paymentCollectionRequired || order.dueAmount.lte(0)) {
+      throw new BadRequestException(
+        'No payment collection is required for this order',
+      );
+    }
+    if (
+      dto.method === CollectionMethod.CASH &&
+      this.config.get<boolean>('payments.allowCashDueCollection') === false
+    ) {
+      throw new BadRequestException('Cash collection is not enabled.');
+    }
+    if (!amount.eq(order.dueAmount)) {
+      throw new BadRequestException(
+        `Collect exactly ₹${order.dueAmount.toFixed(2)} for this order.`,
+      );
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.riderPaymentCollection.create({
+        data: {
+          orderId: order.id,
+          riderId: rider.id,
+          amount,
+          method: dto.method,
+          reference: dto.reference,
+          note: dto.note,
+        },
+      });
+      const nextOrder = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          paidAmount: order.paidAmount.add(amount),
+          dueAmount: 0,
+          paymentStatus: PaymentStatus.PAID,
+          paymentCollectionRequired: false,
+          collectionStatus: CollectionStatus.COLLECTED,
+          collectionMethod: dto.method,
+        },
+        include: deliveryOrderInclude,
+      });
+      await tx.paymentAudit.create({
+        data: {
+          orderId: order.id,
+          eventType: 'RIDER_COLLECTION_RECORDED',
+          message: 'Rider recorded payment collection at delivery.',
+          amount,
+          previousStatus: order.paymentStatus,
+          nextStatus: PaymentStatus.PAID,
+          metadata: {
+            riderId: rider.id,
+            method: dto.method,
+            reference: dto.reference,
+          },
+        },
+      });
+      return nextOrder;
+    });
+    this.deliveryEvents.orderStatusChanged(updated);
+    return updated;
   }
 
   async patchMyLocation(user: User, dto: PatchRiderLocationDto) {

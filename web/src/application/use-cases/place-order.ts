@@ -1,12 +1,14 @@
 import type { AppDependencies } from "@application/app-dependencies";
-import type { PlaceOrderInput } from "@application/ports/order-writer";
+import type {
+  PlaceOrderInput,
+  PlaceOrderResult,
+} from "@application/ports/order-writer";
 import { DomainError } from "@domain/errors";
-import type { Order } from "@domain/order";
 
 export async function placeOrder(
   deps: AppDependencies,
   input: PlaceOrderInput,
-): Promise<Order> {
+): Promise<PlaceOrderResult> {
   if (input.lines.length === 0) {
     throw new DomainError("INVALID_INPUT", "Cart is empty");
   }

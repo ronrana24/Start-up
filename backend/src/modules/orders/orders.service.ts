@@ -4,8 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CollectionStatus,
   DeliveryType,
   OrderStatus,
+  PaymentStatus,
   Prisma,
   RiderStatus,
   User,
@@ -15,7 +17,7 @@ import { DeliveryEventsService } from '../delivery/delivery-events.service';
 import { DeliveryPushService } from '../delivery/delivery-push.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { UsersService } from '../users/users.service';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CheckoutPaymentOption, CreateOrderDto } from './dto/create-order.dto';
 import { OrderListPeriod } from './dto/list-orders-query.dto';
 import type { UserOrdersListResponse } from './order-list.types';
 import {
@@ -23,6 +25,7 @@ import {
   isTerminalStatus,
 } from './order-state-machine';
 import { mergeQuantitiesByProductId } from './merge-order-items';
+import { PaymentsService } from './payments.service';
 import { PricingService } from './pricing.service';
 
 const adminOrderUserSelect = {
@@ -81,6 +84,7 @@ export class OrdersService {
     private readonly users: UsersService,
     private readonly deliveryEvents: DeliveryEventsService,
     private readonly deliveryPush: DeliveryPushService,
+    private readonly payments: PaymentsService,
   ) {}
 
   async create(user: User, dto: CreateOrderDto) {
@@ -112,9 +116,12 @@ export class OrdersService {
       }
       return { product, quantity: qty };
     });
-
     const { pricedLines, subtotal, deliveryFee, total } =
       await this.pricing.computeOrderTotals(user, lines, dto.deliveryType);
+    const paymentSummary = this.payments.paymentSummaryForCreate(
+      total,
+      dto.paymentOption === CheckoutPaymentOption.PARTIAL_UPI,
+    );
 
     const coordinates =
       typeof address.latitude === 'number' &&
@@ -135,6 +142,9 @@ export class OrdersService {
       city: address.city,
       state: address.state,
       pincode: address.pincode,
+      ...(dto.orderNotes?.trim()
+        ? { deliveryNotes: dto.orderNotes.trim() }
+        : {}),
       ...(coordinates ? { coordinates } : {}),
     };
 
@@ -157,6 +167,13 @@ export class OrdersService {
             subtotalAmount: subtotal,
             totalAmount: total,
             addressSnapshot,
+            paymentMode: paymentSummary.paymentMode,
+            paymentStatus: PaymentStatus.PENDING,
+            paidAmount: 0,
+            dueAmount: paymentSummary.dueAmount,
+            paymentCollectionRequired: paymentSummary.paymentCollectionRequired,
+            collectionStatus: paymentSummary.collectionStatus,
+            collectionInstructions: paymentSummary.collectionInstructions,
             items: {
               create: pricedLines.map((l) => ({
                 productId: l.productId,
@@ -176,9 +193,20 @@ export class OrdersService {
     );
 
     const fullOrder = await this.getDeliveryOrderOrThrow(order.id);
-    this.deliveryEvents.orderCreated(fullOrder);
-    void this.deliveryPush.notifyAvailableRiders(fullOrder);
-    return fullOrder;
+    let payment: Awaited<ReturnType<PaymentsService['createCheckoutPayment']>>;
+    try {
+      payment = await this.payments.createCheckoutPayment(
+        fullOrder,
+        paymentSummary.paidNow,
+      );
+    } catch (error) {
+      await this.cancelUnpaidOrderReservation(
+        order.id,
+        'Payment checkout could not be started.',
+      );
+      throw error;
+    }
+    return { order: fullOrder, payment };
   }
 
   /** Lower bound (inclusive) for `createdAt` in UTC; `undefined` means all time. */
@@ -205,6 +233,7 @@ export class OrdersService {
     const gte = this.orderCreatedAtLowerBound(filter);
     const where: Prisma.OrderWhereInput = {
       userId,
+      paymentStatus: { in: [PaymentStatus.PAID, PaymentStatus.PARTIALLY_PAID] },
       ...(gte ? { createdAt: { gte } } : {}),
     };
 
@@ -229,6 +258,12 @@ export class OrdersService {
     const orders = rows.map((o) => ({
       orderId: o.id,
       orderAmount: o.totalAmount.toString(),
+      paymentMode: o.paymentMode,
+      paymentStatus: o.paymentStatus,
+      paidAmount: o.paidAmount.toString(),
+      dueAmount: o.dueAmount.toString(),
+      paymentCollectionRequired: o.paymentCollectionRequired,
+      collectionStatus: o.collectionStatus,
       orderDate: o.createdAt.toISOString(),
       items: o.items.map((line) => ({
         productId: line.productId,
@@ -276,6 +311,9 @@ export class OrdersService {
         orderBy: { createdAt: 'desc' },
         include: {
           items: { include: adminOrderItemsInclude },
+          paymentTransactions: { orderBy: { createdAt: 'desc' }, take: 5 },
+          paymentAudits: { orderBy: { createdAt: 'desc' }, take: 10 },
+          collectionEvents: { orderBy: { collectedAt: 'desc' }, take: 5 },
           user: {
             select: {
               ...adminOrderUserSelect,
@@ -308,6 +346,15 @@ export class OrdersService {
       });
     }
     assertOrderStatusTransition(order.status, next);
+    if (
+      next === OrderStatus.DELIVERED &&
+      order.paymentCollectionRequired &&
+      order.collectionStatus !== CollectionStatus.COLLECTED
+    ) {
+      throw new BadRequestException(
+        'Record the pending delivery collection before marking this order delivered.',
+      );
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (next === OrderStatus.CANCELLED && !isTerminalStatus(order.status)) {
@@ -485,5 +532,44 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
     return order;
+  }
+
+  private async cancelUnpaidOrderReservation(orderId: string, reason: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+      if (
+        !order ||
+        order.status === OrderStatus.CANCELLED ||
+        order.status === OrderStatus.DELIVERED
+      ) {
+        return;
+      }
+      for (const item of order.items) {
+        await this.inventory.releaseReservationInTransaction(
+          tx,
+          item.productId,
+          item.quantity,
+        );
+      }
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.CANCELLED,
+          paymentStatus: PaymentStatus.FAILED,
+        },
+      });
+      await tx.paymentAudit.create({
+        data: {
+          orderId,
+          eventType: 'PAYMENT_ORDER_CREATION_FAILED',
+          message: reason,
+          previousStatus: order.paymentStatus,
+          nextStatus: PaymentStatus.FAILED,
+        },
+      });
+    });
   }
 }

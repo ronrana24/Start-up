@@ -74,6 +74,23 @@ const configuration = () => {
         process.env.MIN_PRIORITY_DELIVERY_FEE_INR ?? '99',
       ),
     },
+    payments: {
+      razorpay: {
+        keyId: process.env.RAZORPAY_KEY_ID ?? '',
+        keySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
+        webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? '',
+      },
+      partialPaymentThresholdInr: parseFloat(
+        process.env.PARTIAL_PAYMENT_THRESHOLD_INR ?? '5000',
+      ),
+      partialPaymentPercent: parseFloat(
+        process.env.PARTIAL_PAYMENT_PERCENT ?? '20',
+      ),
+      allowCashDueCollection: parseBoolean(
+        process.env.ALLOW_CASH_DUE_COLLECTION,
+        true,
+      ),
+    },
     otp: {
       ttlSeconds: parseInt(process.env.OTP_TTL_SECONDS ?? '300', 10),
       maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS ?? '5', 10),
@@ -139,6 +156,19 @@ export function validateEnvironment(
   validateNumber(rawConfig, invalid, 'MIN_PRIORITY_DELIVERY_FEE_INR', {
     min: 0,
   });
+  validateMinLength(rawConfig, invalid, 'RAZORPAY_KEY_ID', 1);
+  validateMinLength(rawConfig, invalid, 'RAZORPAY_KEY_SECRET', 1);
+  validateMinLength(rawConfig, invalid, 'RAZORPAY_WEBHOOK_SECRET', 1);
+  validateNumber(rawConfig, invalid, 'PARTIAL_PAYMENT_THRESHOLD_INR', {
+    min: 0,
+    exclusiveMin: true,
+  });
+  validateNumber(rawConfig, invalid, 'PARTIAL_PAYMENT_PERCENT', {
+    min: 0,
+    max: 100,
+    exclusiveMin: true,
+  });
+  validateBoolean(rawConfig, invalid, 'ALLOW_CASH_DUE_COLLECTION');
   validateInteger(rawConfig, invalid, 'OTP_TTL_SECONDS', {
     min: 0,
     exclusiveMin: true,
