@@ -46,7 +46,7 @@
   --shadow-catalog-focus: 0 0 0 3px rgba(15, 81, 50, 0.2);
   --shadow-catalog-cart: 0 8px 20px rgba(5, 44, 101, 0.3);
 
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-rethink-sans);
   --font-mono: var(--font-geist-mono);
 }
 

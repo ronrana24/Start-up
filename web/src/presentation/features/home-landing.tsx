@@ -259,7 +259,10 @@ function FeaturedProductCarousel({ pool }: { pool: Product[] }) {
 
   const strip = useMemo(
     () =>
-      Array.from({ length: poolLen + CAROUSEL_VISIBLE }, (_, i) => pool[i % poolLen]),
+      Array.from(
+        { length: poolLen + CAROUSEL_VISIBLE },
+        (_, i) => pool[i % poolLen],
+      ),
     [pool, poolLen],
   );
 
@@ -331,15 +334,18 @@ function FeaturedProductCarousel({ pool }: { pool: Product[] }) {
     setSlideIndex((i) => i - 1);
   }, [bumpAutoplay, poolLen, canNavigate]);
 
-  const onTrackTransitionEnd = useCallback((e: TransitionEvent<HTMLDivElement>) => {
-    if (e.propertyName !== "transform") return;
-    if (slideIndexRef.current !== poolLen) return;
-    setTransitionEnabled(false);
-    setSlideIndex(0);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setTransitionEnabled(true));
-    });
-  }, [poolLen]);
+  const onTrackTransitionEnd = useCallback(
+    (e: TransitionEvent<HTMLDivElement>) => {
+      if (e.propertyName !== "transform") return;
+      if (slideIndexRef.current !== poolLen) return;
+      setTransitionEnabled(false);
+      setSlideIndex(0);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setTransitionEnabled(true));
+      });
+    },
+    [poolLen],
+  );
 
   const activeDot = slideIndex >= poolLen ? 0 : slideIndex % poolLen;
 
@@ -390,7 +396,9 @@ function FeaturedProductCarousel({ pool }: { pool: Product[] }) {
               style={{
                 gap: CAROUSEL_GAP_PX,
                 transform:
-                  step > 0 ? `translate3d(${translatePx}px,0,0)` : "translate3d(0,0,0)",
+                  step > 0
+                    ? `translate3d(${translatePx}px,0,0)`
+                    : "translate3d(0,0,0)",
               }}
               onTransitionEnd={onTrackTransitionEnd}
             >
@@ -494,7 +502,10 @@ export function HomeLanding() {
     if (!node) return;
 
     if (typeof window.IntersectionObserver === "undefined") {
-      const fallbackTimer = window.setTimeout(() => setSpeedNetworkActive(true), 0);
+      const fallbackTimer = window.setTimeout(
+        () => setSpeedNetworkActive(true),
+        0,
+      );
       return () => window.clearTimeout(fallbackTimer);
     }
 
@@ -525,8 +536,8 @@ export function HomeLanding() {
             {heroHeadline}
           </p>
           <p className="max-w-xl text-base text-secondary sm:text-lg">
-            Stock up on plates, cutlery, drinkware, and packaging from a single catalog—made for
-            teams that need trusted quality on every delivery.
+            Stock up on plates, cutlery, drinkware, and packaging from a single
+            catalog—made for teams that need trusted quality on every delivery.
           </p>
           <div className="flex flex-wrap gap-3">
             <LinkButton href="/catalog" variant="primary">
@@ -549,7 +560,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section aria-label="Why Grove" className="flex flex-col gap-6">
+      <section aria-label="Why Dispense" className="flex flex-col gap-6">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
           {valueBlocks.map(({ Icon, title, sub }) => (
             <div
@@ -616,7 +627,9 @@ export function HomeLanding() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-heading">{label}</h3>
-                  <p className="mt-1 text-sm leading-relaxed text-secondary">{subtitle}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-secondary">
+                    {subtitle}
+                  </p>
                 </div>
               </div>
             ))}

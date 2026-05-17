@@ -543,19 +543,13 @@ public final class MainActivity extends AppCompatActivity {
     private View authHeader() {
         LinearLayout header = Ui.vertical(this);
         header.setGravity(Gravity.CENTER_HORIZONTAL);
-        FrameLayout badge = new FrameLayout(this);
-        badge.setBackground(Ui.strokedBackground(this, Ui.PRIMARY_LIGHT, Ui.DEFAULT_BORDER, 16));
-        badge.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
-        badge.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
         ImageView mark = new ImageView(this);
-        mark.setImageResource(com.startup.rider.R.drawable.ic_grove_mark);
-        mark.setLayoutParams(new FrameLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40), Gravity.CENTER));
-        badge.addView(mark);
-        header.addView(badge);
+        mark.setImageResource(com.startup.rider.R.drawable.ic_dispense_wordmark);
+        mark.setAdjustViewBounds(true);
+        mark.setContentDescription("Dispense.");
+        mark.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 186), Ui.dp(this, 46)));
+        header.addView(mark);
         Ui.gap(header, 12);
-        TextView title = Ui.text(this, "Grove", 24, Typeface.BOLD);
-        title.setGravity(Gravity.CENTER);
-        header.addView(title);
         TextView body = Ui.text(this, "Wholesale disposable goods for teams that need reliable quality on every delivery.", 14, Typeface.NORMAL);
         body.setGravity(Gravity.CENTER);
         body.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
@@ -618,10 +612,10 @@ public final class MainActivity extends AppCompatActivity {
         TextView flag = Ui.text(this, "🇮🇳", 18, Typeface.NORMAL);
         flag.setIncludeFontPadding(false);
         TextView dial = Ui.text(this, "+91", 12, Typeface.NORMAL);
-        dial.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        dial.setTypeface(Ui.typeface(this, Typeface.NORMAL));
         dial.setTextColor(Ui.MUTED);
         TextView iso = Ui.text(this, "(IN)", 12, Typeface.BOLD);
-        iso.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        iso.setTypeface(Ui.typeface(this, Typeface.BOLD));
         iso.setTextColor(Ui.MUTED);
         TextView chevron = Ui.text(this, "⌄", 16, Typeface.BOLD);
         chevron.setTextColor(Ui.MUTED);
@@ -642,7 +636,7 @@ public final class MainActivity extends AppCompatActivity {
         phone.setText(phoneNational);
         phone.setHint("9876543210");
         phone.setTextSize(16);
-        phone.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);
+        phone.setTypeface(Ui.typeface(this, Typeface.NORMAL));
         phone.setSingleLine(true);
         phone.setInputType(InputType.TYPE_CLASS_PHONE);
         phone.setImeOptions(EditorInfo.IME_ACTION_DONE);

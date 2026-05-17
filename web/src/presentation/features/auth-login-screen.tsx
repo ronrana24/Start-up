@@ -163,18 +163,15 @@ export function AuthLoginScreen() {
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md space-y-6 p-6 sm:p-8">
         <header className="flex flex-col items-center text-center">
-          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-light p-2 ring-1 ring-default">
-            <Image
-              src="/grove-mark.svg"
-              alt="Grove"
-              width={40}
-              height={40}
-              priority
-            />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-heading">
-            Grove
-          </h1>
+          <Image
+            src="/dispense-logo.svg"
+            alt="Dispense."
+            width={186}
+            height={46}
+            priority
+            className="mb-3 h-11 w-auto"
+          />
+          <h1 className="sr-only">Dispense.</h1>
           <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-secondary">
             Wholesale disposable goods for teams that need reliable quality on
             every delivery.

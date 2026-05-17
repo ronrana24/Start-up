@@ -57,7 +57,7 @@ export function createMockOrderWriter(): OrderWriter {
           razorpayOrderId: `order_demo_${order.id}`,
           amountPaise: order.totalCents,
           currency: "INR",
-          name: "Grove",
+          name: "Dispense.",
           description: "Demo UPI payment",
           demo: true,
         },

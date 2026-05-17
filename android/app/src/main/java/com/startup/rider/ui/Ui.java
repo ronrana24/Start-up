@@ -11,8 +11,11 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.content.res.ResourcesCompat;
+
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.startup.rider.R;
 
 public final class Ui {
     public static final int PRIMARY = Color.parseColor("#1F7A63");
@@ -29,6 +32,7 @@ public final class Ui {
     public static final int ERROR = Color.parseColor("#DC2626");
     public static final int SUCCESS = Color.parseColor("#22C55E");
     public static final int SUCCESS_BG = Color.parseColor("#DCFCE7");
+    private static Typeface rethinkSans;
 
     private Ui() {
     }
@@ -37,11 +41,22 @@ public final class Ui {
         return Math.round(value * context.getResources().getDisplayMetrics().density);
     }
 
+    public static Typeface typeface(Context context, int style) {
+        if (rethinkSans == null) {
+            try {
+                rethinkSans = ResourcesCompat.getFont(context, R.font.rethink_sans);
+            } catch (RuntimeException ignored) {
+                rethinkSans = Typeface.DEFAULT;
+            }
+        }
+        return Typeface.create(rethinkSans == null ? Typeface.DEFAULT : rethinkSans, style);
+    }
+
     public static TextView text(Context context, String value, int sp, int style) {
         TextView view = new TextView(context);
         view.setText(value);
         view.setTextSize(sp);
-        view.setTypeface(Typeface.DEFAULT, style);
+        view.setTypeface(typeface(context, style));
         view.setTextColor(style == Typeface.BOLD ? HEADING : SECONDARY);
         view.setLineSpacing(dp(context, 2), 1f);
         return view;
@@ -72,7 +87,7 @@ public final class Ui {
         button.setText(label);
         button.setMinHeight(dp(context, 44));
         button.setTextSize(14);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setTypeface(typeface(context, Typeface.BOLD));
         button.setCornerRadius(dp(context, 8));
         button.setBackgroundTintList(ColorStateList.valueOf(PRIMARY));
         button.setTextColor(Color.WHITE);
@@ -119,6 +134,7 @@ public final class Ui {
         input.setSingleLine(true);
         input.setInputType(inputType);
         input.setTextColor(HEADING);
+        input.setTypeface(typeface(context, Typeface.NORMAL));
         input.setHintTextColor(MUTED);
         input.setPadding(dp(context, 12), 0, dp(context, 12), 0);
         input.setMinHeight(dp(context, 44));

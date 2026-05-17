@@ -6,6 +6,8 @@
         <item name="colorSecondary">@color/accent_200</item>
         <item name="colorSecondaryVariant">@color/accent_700</item>
         <item name="colorOnSecondary">@color/black</item>
+        <item name="fontFamily">@font/rethink_sans</item>
+        <item name="android:fontFamily">@font/rethink_sans</item>
         <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
         <item name="android:navigationBarColor">@color/primary_700</item>
     </style>

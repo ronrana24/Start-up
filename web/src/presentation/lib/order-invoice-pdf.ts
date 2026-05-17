@@ -45,8 +45,8 @@ export function downloadOrderInvoicePdf(
   order: Order,
   options?: DownloadOrderInvoicePdfOptions,
 ): void {
-  const vendor = options?.vendorName ?? "Grove Shop";
-  const prefix = options?.filenamePrefix ?? "Grove-invoice";
+  const vendor = options?.vendorName ?? "Dispense.";
+  const prefix = options?.filenamePrefix ?? "Dispense-invoice";
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 14;
@@ -117,7 +117,9 @@ export function downloadOrderInvoicePdf(
   doc.setFontSize(11);
   doc.setTextColor(17, 24, 39);
   doc.text("Total", margin, totalY);
-  doc.text(formatMoney(order.totalCents), pageW - margin, totalY, { align: "right" });
+  doc.text(formatMoney(order.totalCents), pageW - margin, totalY, {
+    align: "right",
+  });
 
   const filename = `${prefix}-${sanitizeFilenamePart(order.id)}.pdf`;
   doc.save(filename);

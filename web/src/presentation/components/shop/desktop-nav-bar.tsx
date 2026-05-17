@@ -3,13 +3,13 @@
 import {
   NavAccountIcon,
   NavCartIcon,
-  NavHomeIcon,
   NavLoginIcon,
 } from "@presentation/components/shop/nav-icons";
 import { Badge } from "@presentation/components/ui/badge";
 import { cn } from "@presentation/lib/cn";
 import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -70,17 +70,23 @@ export function DesktopNavBar() {
       >
         <Link
           href="/"
-          className="flex min-w-0 items-center gap-2.5 rounded-xl text-heading transition-colors hover:bg-primary-light/70"
+          aria-label="Dispense home"
+          className="flex min-w-0 items-center rounded-xl px-1 py-1 text-heading transition-colors hover:bg-primary-light/70"
         >
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-light text-primary">
-            <NavHomeIcon className="h-6 w-6 shrink-0" aria-hidden />
-          </span>
-          <span className="truncate text-lg font-bold tracking-tight text-primary">
-            Grove
-          </span>
+          <Image
+            src="/dispense-logo.svg"
+            alt="Dispense."
+            width={186}
+            height={46}
+            priority
+            className="h-9 w-auto"
+          />
         </Link>
 
-        <nav aria-label="Main" className="flex min-w-0 items-center justify-center gap-5 md:gap-8">
+        <nav
+          aria-label="Main"
+          className="flex min-w-0 items-center justify-center gap-5 md:gap-8"
+        >
           {centerLinks.map(({ href, label }) => {
             const active =
               href === "/"

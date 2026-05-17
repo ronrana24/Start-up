@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Rider Delivery</string>
+    <string name="app_name">Dispense Rider</string>
     <string name="notification_channel_orders">New delivery orders</string>
     <string name="notification_channel_tracking">Live delivery tracking</string>
     <string name="tracking_notification_title">Live tracking active</string>
