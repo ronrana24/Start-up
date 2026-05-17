@@ -50,6 +50,7 @@ type PriceInputProps = Omit<
   label: string;
 };
 
+const minProductImages = 4;
 const maxProductImages = 10;
 const productCategoryOptions = Object.values(ProductCategory);
 const rangeOptions: Array<{ value: AdminAnalyticsRange; label: string }> = [
@@ -327,9 +328,12 @@ export function AdminProductEditScreen() {
   const params = useParams<{ productId: string }>();
   const productId = params?.productId ?? "";
 
-  const { data: product, error, isLoading } = useAdminQuery(
-    ["admin", "product", productId],
-    () => getAdminProduct(productId),
+  const {
+    data: product,
+    error,
+    isLoading,
+  } = useAdminQuery(["admin", "product", productId], () =>
+    getAdminProduct(productId),
   );
 
   if (isLoading) {
@@ -396,7 +400,10 @@ function AdminProductEditForm({
   }, []);
 
   const categoryOptions = useMemo(() => {
-    if (!category || productCategoryOptions.includes(category as ProductCategory)) {
+    if (
+      !category ||
+      productCategoryOptions.includes(category as ProductCategory)
+    ) {
       return productCategoryOptions;
     }
     return [category, ...productCategoryOptions];
@@ -429,7 +436,9 @@ function AdminProductEditForm({
   function addImageFiles(files: FileList | File[]) {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    const validImages = incoming.filter((file) => file.type.startsWith("image/"));
+    const validImages = incoming.filter((file) =>
+      file.type.startsWith("image/"),
+    );
     if (validImages.length !== incoming.length) {
       setFormError("Only image files can be uploaded for products.");
     }
@@ -534,6 +543,10 @@ function AdminProductEditForm({
       );
       return;
     }
+    if (images.length < minProductImages) {
+      setFormError(`Add at least ${minProductImages} product images.`);
+      return;
+    }
     setIsSaving(true);
     setFormError(null);
     try {
@@ -560,9 +573,7 @@ function AdminProductEditForm({
     <div className="mx-auto max-w-3xl space-y-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-catalog-text">
-            Edit Product
-          </h1>
+          <h1 className="text-2xl font-bold text-catalog-text">Edit Product</h1>
           <p className="text-sm text-catalog-text-muted">
             Update catalog, inventory, image order, and bulk pricing details.
           </p>
@@ -666,7 +677,8 @@ function AdminProductEditForm({
                 Product images
               </h2>
               <p className="text-xs leading-relaxed text-catalog-text-muted">
-                Reorder, remove, or add product images.
+                Reorder, remove, or add product images. Keep at least{" "}
+                {minProductImages} and up to {maxProductImages} images.
               </p>
             </div>
             <Button

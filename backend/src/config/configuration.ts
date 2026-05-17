@@ -14,6 +14,9 @@ const requiredEnvVars = [
   'OTP_PEPPER',
   'OTP_DEV_MODE',
   'DEFAULT_WAREHOUSE_ID',
+  'SUPABASE_URL',
+  'SUPABASE_SECRET_KEY',
+  'SUPABASE_STORAGE_BUCKET',
   'CORS_ORIGIN',
 ] as const;
 
@@ -100,6 +103,15 @@ const configuration = () => {
     warehouse: {
       defaultId: process.env.DEFAULT_WAREHOUSE_ID ?? 'default',
     },
+    storage: {
+      supabase: {
+        url:
+          process.env.SUPABASE_URL ??
+          'https://stdabaxmvaaooiuzpmle.supabase.co',
+        secretKey: process.env.SUPABASE_SECRET_KEY ?? '',
+        bucket: process.env.SUPABASE_STORAGE_BUCKET ?? 'Images',
+      },
+    },
     delivery: {
       locationUpdateIntervalSeconds: parseInt(
         process.env.RIDER_LOCATION_UPDATE_INTERVAL_SECONDS ?? '15',
@@ -180,6 +192,9 @@ export function validateEnvironment(
   validateMinLength(rawConfig, invalid, 'OTP_PEPPER', minSecretLength);
   validateBoolean(rawConfig, invalid, 'OTP_DEV_MODE');
   validateMinLength(rawConfig, invalid, 'DEFAULT_WAREHOUSE_ID', 1);
+  validateUrl(rawConfig, invalid, 'SUPABASE_URL');
+  validateMinLength(rawConfig, invalid, 'SUPABASE_SECRET_KEY', 1);
+  validateMinLength(rawConfig, invalid, 'SUPABASE_STORAGE_BUCKET', 1);
   validateCorsOrigins(rawConfig, invalid, 'CORS_ORIGIN');
   validateAuthCookieOptions(rawConfig, invalid);
 
@@ -299,6 +314,23 @@ function validateDatabaseUrl(
     }
   } catch {
     invalid.push(`${name} must be a valid PostgreSQL connection URL`);
+  }
+}
+
+function validateUrl(
+  rawConfig: Record<string, unknown>,
+  invalid: string[],
+  name: string,
+): void {
+  const raw = readRawEnv(rawConfig, name);
+  if (isBlank(raw)) return;
+  try {
+    const parsed = new URL(raw!);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      invalid.push(`${name} must use http:// or https://`);
+    }
+  } catch {
+    invalid.push(`${name} must be a valid URL`);
   }
 }
 

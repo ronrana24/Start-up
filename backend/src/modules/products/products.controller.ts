@@ -7,29 +7,18 @@ import {
   Patch,
   Post,
   Query,
-  Req,
-  UploadedFiles,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
-import type { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
+import { PrepareProductImageUploadsDto } from './dto/prepare-product-image-uploads.dto';
 import { QueryProductsDto } from './dto/query-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
-
-type UploadedProductImageFile = {
-  originalname: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
-};
 
 @Controller('products')
 export class ProductsController {
@@ -73,30 +62,7 @@ export class ProductsController {
   @Post('uploads')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(
-    FilesInterceptor('images', 10, {
-      limits: { fileSize: 8 * 1024 * 1024, files: 10 },
-    }),
-  )
-  uploadImages(
-    @UploadedFiles() files: UploadedProductImageFile[],
-    @Req() request: Request,
-  ) {
-    return this.products.uploadImages(files ?? [], publicBaseUrl(request));
+  prepareImageUploads(@Body() dto: PrepareProductImageUploadsDto) {
+    return this.products.prepareImageUploads(dto.files);
   }
-}
-
-function publicBaseUrl(request: Request): string {
-  const forwardedProto = firstForwardedHeader(request.get('x-forwarded-proto'));
-  const forwardedHost = firstForwardedHeader(request.get('x-forwarded-host'));
-  const protocol = forwardedProto || request.protocol;
-  const host = forwardedHost || request.get('host');
-  return `${protocol}://${host}`;
-}
-
-function firstForwardedHeader(value: string | undefined): string | undefined {
-  return value
-    ?.split(',')
-    .map((part) => part.trim())
-    .find(Boolean);
 }

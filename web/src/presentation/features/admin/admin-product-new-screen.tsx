@@ -29,6 +29,7 @@ type PriceInputProps = Omit<
   label: string;
 };
 
+const minProductImages = 4;
 const maxProductImages = 10;
 const productCategoryOptions = Object.values(ProductCategory);
 
@@ -249,7 +250,10 @@ function BuyerProductPreviewModal({
                     <span className="text-right">Savings</span>
                   </div>
                   {previewTiers.map((tier, index) => {
-                    const savings = Math.max(0, basePriceCents - tier.priceCents);
+                    const savings = Math.max(
+                      0,
+                      basePriceCents - tier.priceCents,
+                    );
                     return (
                       <div
                         key={`${tier.minQty}-${index}`}
@@ -482,6 +486,10 @@ export function AdminProductNewScreen() {
       );
       return;
     }
+    if (images.length < minProductImages) {
+      setError(`Add at least ${minProductImages} product images.`);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
@@ -603,7 +611,8 @@ export function AdminProductNewScreen() {
               required
             />
             <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
-              The cost price of the product is {basePrice} per {availableUnitLabel}.
+              The cost price of the product is {basePrice} per{" "}
+              {availableUnitLabel}.
             </p>
           </div>
 
@@ -681,7 +690,7 @@ export function AdminProductNewScreen() {
             </span>
             <span className="mt-1 max-w-sm text-xs leading-relaxed">
               or click to pick JPG, PNG, WEBP, or GIF files from your computer.
-              Up to {maxProductImages} images.
+              Add {minProductImages} to {maxProductImages} images.
             </span>
           </button>
 

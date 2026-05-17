@@ -5,8 +5,8 @@ import { DomainError } from "@domain/errors";
 import {
   apiJsonAuthorized,
   apiJsonPost,
-  readApiErrorMessage,
 } from "@infrastructure/http/http-client";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export type AdminRoleFilter = "BUYER" | "ADMIN" | "RIDER" | "ALL";
 export type AdminAnalyticsRange = "7d" | "30d" | "90d" | "all";
@@ -23,6 +23,26 @@ export type OrderStatus =
   | "CANCELLED";
 
 type ApiEnvelope<T> = { data: T };
+type PreparedProductImageUpload = {
+  originalName: string;
+  bucket: string;
+  path: string;
+  signedUrl: string;
+  token: string;
+  publicUrl: string;
+  contentType: string;
+  cacheControl: string;
+};
+
+const maxProductImages = 10;
+const maxProductImageBytes = 8 * 1024 * 1024;
+const allowedProductImageTypes = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+let supabaseStorageClient: SupabaseClient | null = null;
 
 function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
   if (body && typeof body === "object" && "data" in body) {
@@ -35,10 +55,47 @@ function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").trim();
 }
 
-function apiUrl(path: string): string {
-  const base = apiBaseUrl().replace(/\/+$/, "");
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return base ? `${base}${normalizedPath}` : normalizedPath;
+function productImageSupabaseClient(): SupabaseClient {
+  if (supabaseStorageClient) return supabaseStorageClient;
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() as string;
+  const publishableKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  if (!publishableKey) {
+    throw new DomainError(
+      "INVALID_INPUT",
+      "Image storage is not configured. Add the Supabase publishable key.",
+    );
+  }
+  supabaseStorageClient = createClient(supabaseUrl, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return supabaseStorageClient;
+}
+
+function validateProductImageFiles(files: File[]): void {
+  if (files.length > maxProductImages) {
+    throw new DomainError(
+      "INVALID_INPUT",
+      `You can upload up to ${maxProductImages} product images.`,
+    );
+  }
+  const invalidType = files.find(
+    (file) => !allowedProductImageTypes.has(file.type),
+  );
+  if (invalidType) {
+    throw new DomainError(
+      "INVALID_INPUT",
+      "Only JPG, PNG, WEBP, and GIF product images are allowed.",
+    );
+  }
+  const oversized = files.find((file) => file.size > maxProductImageBytes);
+  if (oversized) {
+    throw new DomainError(
+      "INVALID_INPUT",
+      "Product images must be 8 MB or smaller.",
+    );
+  }
 }
 
 export type AdminUser = {
@@ -624,39 +681,62 @@ export async function uploadAdminProductImages(
   files: File[],
 ): Promise<string[]> {
   if (files.length === 0) return [];
-  const body = new FormData();
-  for (const file of files) {
-    body.append("images", file);
-  }
-  let res: Response;
+  validateProductImageFiles(files);
+  const supabase = productImageSupabaseClient();
+  let payload: { uploads: PreparedProductImageUpload[] };
   try {
-    res = await fetch(apiUrl("/api/products/uploads"), {
-      method: "POST",
-      body,
-      credentials: "include",
-    });
-  } catch {
+    payload = unwrapBody(
+      await apiJsonAuthorized<
+        | { uploads: PreparedProductImageUpload[] }
+        | ApiEnvelope<{ uploads: PreparedProductImageUpload[] }>
+      >(apiBaseUrl(), "/api/products/uploads", {
+        method: "POST",
+        body: {
+          files: files.map((file) => ({
+            originalName: file.name,
+            contentType: file.type,
+            size: file.size,
+          })),
+        },
+      }),
+    );
+  } catch (err) {
+    if (err instanceof DomainError) {
+      throw err;
+    }
     throw new DomainError(
       "NETWORK",
       "No internet connection. Check your network and try again.",
     );
   }
-  if (!res.ok) {
+
+  if (payload.uploads.length !== files.length) {
     throw new DomainError(
-      res.status === 401
-        ? "UNAUTHORIZED"
-        : res.status === 403
-          ? "FORBIDDEN"
-          : "INVALID_INPUT",
-      await readApiErrorMessage(res),
+      "INVALID_INPUT",
+      "Image upload could not be prepared. Try again.",
     );
   }
-  const payload = unwrapBody(
-    (await res.json()) as
-      | { imageUrls: string[] }
-      | ApiEnvelope<{ imageUrls: string[] }>,
-  );
-  return payload.imageUrls;
+
+  const publicUrls: string[] = [];
+  for (const [index, upload] of payload.uploads.entries()) {
+    const file = files[index];
+    if (!file) continue;
+    const { error } = await supabase.storage
+      .from(upload.bucket)
+      .uploadToSignedUrl(upload.path, upload.token, file, {
+        cacheControl: upload.cacheControl,
+        contentType: upload.contentType || file.type,
+        upsert: false,
+      });
+    if (error) {
+      throw new DomainError(
+        "INVALID_INPUT",
+        `Could not upload ${file.name}. Please try again.`,
+      );
+    }
+    publicUrls.push(upload.publicUrl);
+  }
+  return publicUrls;
 }
 
 export async function listAdminOrders(

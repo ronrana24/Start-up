@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -54,6 +56,8 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(4, { message: 'Add at least 4 product images.' })
+  @ArrayMaxSize(10, { message: 'You can add up to 10 product images.' })
   @IsUrl(
     {
       require_protocol: true,
