@@ -5,6 +5,7 @@ import { LinkButton } from "@presentation/components/ui/link-button";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
+import { productPath } from "@presentation/lib/product-url";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -217,7 +218,7 @@ function FeaturedCarouselSlide({
 }) {
   return (
     <Link
-      href={`/products/${product.id}`}
+      href={productPath(product)}
       className="group shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       style={widthStyle}
     >

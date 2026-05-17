@@ -2,6 +2,7 @@
 
 import { Card } from "@presentation/components/ui/card";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
+import { productPath } from "@presentation/lib/product-url";
 import { formatMoney } from "@presentation/lib/format-money";
 import Link from "next/link";
 
@@ -46,12 +47,14 @@ export function HomeCatalog({ showIntro = true }: HomeCatalogProps) {
       {showIntro ? (
         <div>
           <h1 className="text-2xl font-bold text-heading">Shop</h1>
-          <p className="text-sm text-secondary">Fresh picks for your routine.</p>
+          <p className="text-sm text-secondary">
+            Fresh picks for your routine.
+          </p>
         </div>
       ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {data.map((product) => (
-          <Link key={product.id} href={`/products/${product.id}`} className="group">
+          <Link key={product.id} href={productPath(product)} className="group">
             <Card className="h-full p-0 overflow-hidden transition-shadow group-hover:shadow-md">
               <div className="aspect-[4/3] bg-primary-light">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -1,5 +1,14 @@
 import { Card } from "@presentation/components/ui/card";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "About Dispense - B2B Disposable Supply Platform",
+  description:
+    "Learn how Dispense helps restaurants, offices, caterers, retailers, and operations teams procure disposable products and packaging supplies.",
+  alternates: { canonical: "/about" },
+};
+
 export default function AboutPage() {
   return (
     <div className="flex flex-col gap-4">

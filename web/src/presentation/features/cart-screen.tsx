@@ -5,6 +5,7 @@ import { MobilePageHeader } from "@presentation/components/shop/mobile-page-head
 import { LinkButton } from "@presentation/components/ui/link-button";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
+import { productPathById } from "@presentation/lib/product-url";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -246,7 +247,7 @@ export function CartScreen() {
         <section className="flex flex-col gap-2 p-3">
           {lines.map((line) => {
             const lineTotal = line.unitPriceCents * line.quantity;
-            const productHref = `/products/${line.productId}`;
+            const productHref = productPathById(line.productId, line.title);
             return (
               <article
                 key={line.productId}

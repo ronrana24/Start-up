@@ -3,9 +3,14 @@ import type { BulkTier, Product, ProductId } from "@domain/product";
 import { apiJsonAuthorized } from "./http-client";
 
 type ApiEnvelope<T> = { data: T };
-type ApiPaginated<T> = { items: T[]; total: number; page: number; pageSize: number };
+type ApiPaginated<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
 
-type ApiProduct = {
+export type ApiProduct = {
   id: string;
   name: string;
   category: string;
@@ -24,6 +29,8 @@ type ApiProduct = {
   } | null;
   bulkPricingTiers: Array<{ minQty: number; price: string | number }>;
   inventory?: { availableQty: number } | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
@@ -46,7 +53,7 @@ function mapBulkTiers(product: ApiProduct): BulkTier[] {
   }));
 }
 
-function mapProduct(product: ApiProduct): Product {
+export function mapApiProduct(product: ApiProduct): Product {
   const basePriceCents = priceToCents(product.basePrice);
   const effectivePriceCents = priceToCents(
     product.effectivePrice ?? product.basePrice,
@@ -66,8 +73,12 @@ function mapProduct(product: ApiProduct): Product {
           label: product.specialPricing.label,
           discountType: product.specialPricing.discountType,
           discountValue: Number(product.specialPricing.discountValue),
-          originalPriceCents: priceToCents(product.specialPricing.originalPrice),
-          effectivePriceCents: priceToCents(product.specialPricing.effectivePrice),
+          originalPriceCents: priceToCents(
+            product.specialPricing.originalPrice,
+          ),
+          effectivePriceCents: priceToCents(
+            product.specialPricing.effectivePrice,
+          ),
         }
       : null,
     imageUrl,
@@ -101,12 +112,12 @@ export function createHttpProductReader(baseUrl: string): ProductReader {
           ApiPaginated<ApiProduct> | ApiEnvelope<ApiPaginated<ApiProduct>>
         >(baseUrl, `/api/products?${params.toString()}`, { method: "GET" }),
       );
-      return body.items.map(mapProduct);
+      return body.items.map(mapApiProduct);
     },
     async getById(id: ProductId): Promise<Product | null> {
       try {
         const params = new URLSearchParams({ publicOnly: "true" });
-        return mapProduct(
+        return mapApiProduct(
           unwrapBody(
             await apiJsonAuthorized<ApiProduct | ApiEnvelope<ApiProduct>>(
               baseUrl,

@@ -16,6 +16,7 @@ import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
+import { productPath } from "@presentation/lib/product-url";
 import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
@@ -118,7 +119,11 @@ function orderedUnitPriceCents(product: Product, line: OrderLine): number {
     : pricePerCaseCents(product, line.quantity);
 }
 
-export function CatalogScreen() {
+export function CatalogScreen({
+  initialSearch = "",
+}: {
+  initialSearch?: string;
+}) {
   const { data: raw, isPending, isError, refetch } = useProductsQuery();
   const userId = useAuthStore((s) => s.userId);
   const { data: orders } = useOrdersQuery(userId);
@@ -126,7 +131,7 @@ export function CatalogScreen() {
   const upsertProductLine = useCartStore((s) => s.upsertProductLine);
   const setQuantity = useCartStore((s) => s.setQuantity);
 
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [sort, setSort] = useState<SortKey>("best");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [ecoOnly, setEcoOnly] = useState(false);
@@ -468,7 +473,7 @@ function CatalogProductCard({
   const imageUrls = productGalleryUrls(p);
 
   function goToDetail() {
-    router.push(`/products/${p.id}`);
+    router.push(productPath(p));
   }
 
   return (

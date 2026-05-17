@@ -31,6 +31,7 @@ import { useProductQuery } from "@presentation/hooks/use-product-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
 import { cn } from "@presentation/lib/cn";
 import { formatMoney } from "@presentation/lib/format-money";
+import { productPath } from "@presentation/lib/product-url";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -156,7 +157,6 @@ function ProductDetailContent({
 
   return (
     <div className="relative flex flex-col pb-36 lg:pb-10">
-
       <MobilePageHeader
         title="Product details"
         fallbackHref="/catalog"
@@ -179,7 +179,7 @@ function ProductDetailContent({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={hero}
-              alt=""
+              alt={`${data.title} product image`}
               className="max-h-full max-w-full object-contain"
             />
             {data.badges && data.badges.length > 0 ? (
@@ -228,7 +228,7 @@ function ProductDetailContent({
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={src}
-                    alt=""
+                    alt={`${data.title} product image ${i + 1}`}
                     className="h-full w-full object-contain"
                   />
                 </button>
@@ -575,13 +575,13 @@ function ProductDetailContent({
                   className="flex w-[140px] shrink-0 flex-col gap-2 rounded-xl border border-default/60 bg-card p-3 shadow-sm"
                 >
                   <Link
-                    href={`/products/${p.id}`}
+                    href={productPath(p)}
                     className="block h-20 w-full overflow-hidden rounded-lg bg-input-bg p-2"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={p.imageUrl}
-                      alt=""
+                      alt={`${p.title} product image`}
                       className="h-full w-full object-contain"
                     />
                   </Link>
@@ -591,7 +591,7 @@ function ProductDetailContent({
                         {p.brand}
                       </p>
                     ) : null}
-                    <Link href={`/products/${p.id}`}>
+                    <Link href={productPath(p)}>
                       <h3 className="line-clamp-2 text-xs font-semibold leading-tight text-heading">
                         {p.title}
                       </h3>
