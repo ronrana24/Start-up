@@ -47,7 +47,7 @@ export type AuthUser = {
   businessType: string;
   gstNumber: string | null;
   isOnboardingCompleted: boolean;
-  role: UserRole;
+  roles: UserRole[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -150,7 +150,10 @@ export class AuthService {
     const payload: JwtPayload = {
       sub: user.id,
       phone: user.phone,
-      role: user.role,
+      // Primary role kept in the flat field for JWT backward-compat;
+      // the strategy always reloads the user row so this is informational only.
+      role: user.roles[0] ?? UserRole.BUYER,
+      roles: user.roles,
     };
     return this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>('jwt.secret'),
@@ -168,7 +171,7 @@ export class AuthService {
       businessType: user.businessType,
       gstNumber: user.gstNumber,
       isOnboardingCompleted: user.isOnboardingCompleted,
-      role: user.role,
+      roles: user.roles,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -184,7 +187,7 @@ export class AuthService {
   }
 
   private async assertRiderUser(user: User): Promise<Rider> {
-    if (user.role !== UserRole.RIDER) {
+    if (!user.roles.includes(UserRole.RIDER)) {
       throw new UnauthorizedException(
         'Google account is not registered with other role',
       );
@@ -221,7 +224,7 @@ export class AuthService {
         data: {
           phone,
           businessName: 'My business',
-          role: UserRole.BUYER,
+          roles: [UserRole.BUYER],
         },
       });
     }
@@ -245,7 +248,7 @@ export class AuthService {
       where: { phone },
       include: { rider: true },
     });
-    if (user && user.role !== UserRole.RIDER) {
+    if (user && !user.roles.includes(UserRole.RIDER)) {
       throw new UnauthorizedException('Phone is not registered as a rider');
     }
     if (!user) {
@@ -273,7 +276,7 @@ export class AuthService {
     });
     if (
       !user ||
-      user.role !== UserRole.ADMIN ||
+      !user.roles.includes(UserRole.ADMIN) ||
       !user.passwordHash ||
       !(await bcrypt.compare(password, user.passwordHash))
     ) {
@@ -428,7 +431,7 @@ export class AuthService {
           name: profile.name ?? null,
           googleId: profile.googleId,
           businessName: profile.name ?? 'My business',
-          role: UserRole.BUYER,
+          roles: [UserRole.BUYER],
         },
       });
     }
@@ -552,7 +555,7 @@ export class AuthService {
     const riderName = profile.name?.trim() || 'Rider';
     const result = await this.prisma.$transaction(async (tx) => {
       if (existing) {
-        if (existing.role !== UserRole.RIDER) {
+        if (!existing.roles.includes(UserRole.RIDER)) {
           throw new UnauthorizedException('Phone is not registered as a rider');
         }
         if (existing.googleId && existing.googleId !== profile.googleId) {
@@ -586,7 +589,7 @@ export class AuthService {
           name: profile.name ?? riderName,
           googleId: profile.googleId,
           businessName: riderName,
-          role: UserRole.RIDER,
+          roles: [UserRole.RIDER],
           isOnboardingCompleted: false,
           rider: {
             create: {

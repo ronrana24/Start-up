@@ -8,7 +8,7 @@ export function useRequireAuth(): boolean {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
   const isOnboardingCompleted = useAuthStore((s) => s.isOnboardingCompleted);
-  const role = useAuthStore((s) => s.role);
+  const roles = useAuthStore((s) => s.roles);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -21,7 +21,7 @@ export function useRequireAuth(): boolean {
       return;
     }
     if (
-      role !== "ADMIN" &&
+      !roles?.includes("ADMIN") &&
       !isOnboardingCompleted &&
       pathname !== "/onboarding"
     ) {
@@ -32,13 +32,13 @@ export function useRequireAuth(): boolean {
     isAuthenticated,
     isOnboardingCompleted,
     pathname,
-    role,
+    roles,
     router,
   ]);
 
   return (
     hasCheckedSession &&
     isAuthenticated &&
-    (role === "ADMIN" || isOnboardingCompleted || pathname === "/onboarding")
+    (roles?.includes("ADMIN") || isOnboardingCompleted || pathname === "/onboarding")
   );
 }

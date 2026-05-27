@@ -48,7 +48,7 @@ const deliveryOrderInclude = {
       businessName: true,
       businessType: true,
       gstNumber: true,
-      role: true,
+      roles: true,
     },
   },
 } satisfies Prisma.OrderInclude;

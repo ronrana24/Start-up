@@ -102,7 +102,7 @@ export class PricingRulesService {
     user: User | null | undefined,
     productIds: string[],
   ): Promise<Map<string, PricingRule>> {
-    if (!user || user.role !== UserRole.BUYER || productIds.length === 0) {
+    if (!user || !user.roles.includes(UserRole.BUYER) || productIds.length === 0) {
       return Promise.resolve(new Map<string, PricingRule>());
     }
     return this.prisma.userProductPricingRule
@@ -195,7 +195,7 @@ export class PricingRulesService {
       this.prisma.user.findUnique({ where: { id: userId } }),
       this.prisma.product.findUnique({ where: { id: productId } }),
     ]);
-    if (!buyer || buyer.role !== UserRole.BUYER) {
+    if (!buyer || !buyer.roles.includes(UserRole.BUYER)) {
       throw new NotFoundException('Buyer not found');
     }
     if (!product) {
@@ -234,7 +234,7 @@ export class PricingRulesService {
 
   async listForUser(userId: string) {
     const buyer = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!buyer || buyer.role !== UserRole.BUYER) {
+    if (!buyer || !buyer.roles.includes(UserRole.BUYER)) {
       throw new NotFoundException('Buyer not found');
     }
     return this.prisma.userProductPricingRule.findMany({

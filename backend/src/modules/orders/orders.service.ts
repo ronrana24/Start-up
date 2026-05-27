@@ -38,7 +38,7 @@ const adminOrderUserSelect = {
   businessName: true,
   businessType: true,
   gstNumber: true,
-  role: true,
+  roles: true,
 } satisfies Prisma.UserSelect;
 
 const adminOrderItemsInclude = {
@@ -49,6 +49,18 @@ const adminOrderItemsInclude = {
       category: true,
       unit: true,
       imageUrls: true,
+    },
+  },
+  batchAllocations: {
+    orderBy: { createdAt: 'asc' as const },
+    include: {
+      batch: {
+        select: {
+          batchNumber: true,
+          sellingPrice: true,
+          costPrice: true,
+        },
+      },
     },
   },
 } satisfies Prisma.OrderItemInclude;
@@ -95,7 +107,7 @@ export class OrdersService {
     private readonly deliveryEvents: DeliveryEventsService,
     private readonly deliveryPush: DeliveryPushService,
     private readonly payments: PaymentsService,
-  ) {}
+  ) { }
 
   /**
    * Retry the serializable order-creation transaction on transient
@@ -144,9 +156,9 @@ export class OrdersService {
     throw lastError instanceof Error
       ? lastError
       : new ConflictException({
-          code: 'CONFLICT',
-          message: 'Could not place order. Please try again.',
-        });
+        code: 'CONFLICT',
+        message: 'Could not place order. Please try again.',
+      });
   }
 
   async create(user: User, dto: CreateOrderDto) {
@@ -185,15 +197,15 @@ export class OrdersService {
 
     const coordinates =
       typeof address.latitude === 'number' &&
-      Number.isFinite(address.latitude) &&
-      typeof address.longitude === 'number' &&
-      Number.isFinite(address.longitude)
+        Number.isFinite(address.latitude) &&
+        typeof address.longitude === 'number' &&
+        Number.isFinite(address.longitude)
         ? {
-            lat: address.latitude,
-            lng: address.longitude,
-            accuracyMeters: address.locationAccuracyMeters,
-            source: address.locationSource ?? 'buyer_pin',
-          }
+          lat: address.latitude,
+          lng: address.longitude,
+          accuracyMeters: address.locationAccuracyMeters,
+          source: address.locationSource ?? 'buyer_pin',
+        }
         : null;
 
     const addressSnapshot = {
@@ -215,7 +227,7 @@ export class OrdersService {
         // reuse the pre-tx allocation snapshot because another buyer may
         // have drained a batch between quote and place.
         type CommittedLine = {
-          productId: string;
+        productId: string;
           quantity: number;
           allocations: Array<{
             batchId: string;

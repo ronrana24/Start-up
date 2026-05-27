@@ -41,7 +41,11 @@ export class OnboardingGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
-    if (!user || user.role === UserRole.ADMIN || user.isOnboardingCompleted) {
+    if (
+      !user ||
+      user.roles.includes(UserRole.ADMIN) ||
+      user.isOnboardingCompleted
+    ) {
       return true;
     }
 

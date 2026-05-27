@@ -34,7 +34,7 @@ const allowedImageMimeTypes = new Map<string, string>([
 ]);
 
 function canSeePrivateProducts(user?: User): boolean {
-  return user?.role === UserRole.ADMIN;
+  return user?.roles.includes(UserRole.ADMIN) ?? false;
 }
 
 @Injectable()

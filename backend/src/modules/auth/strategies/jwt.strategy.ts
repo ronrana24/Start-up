@@ -7,7 +7,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 export type JwtPayload = {
   sub: string;
   phone: string;
+  /** Primary role (backward-compat). The strategy always re-reads from DB. */
   role: string;
+  /** All assigned roles. Present in tokens issued after multi-role migration. */
+  roles?: string[];
 };
 
 type RequestWithCookies = {

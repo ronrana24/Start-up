@@ -5,7 +5,7 @@ import { apiJsonPost } from "@infrastructure/http/http-client";
 type ApiUser = {
   id: string;
   phone: string | null;
-  role: AuthSession["role"];
+  roles: AuthSession["roles"];
   isOnboardingCompleted?: boolean;
 };
 type ApiEnvelope<T> = { data: T };
@@ -22,7 +22,7 @@ function sessionFromUser(accessToken: string | null, user: ApiUser): AuthSession
     accessToken,
     userId: user.id,
     phone: user.phone,
-    role: user.role,
+    roles: user.roles,
     isOnboardingCompleted: user.isOnboardingCompleted ?? false,
   };
 }

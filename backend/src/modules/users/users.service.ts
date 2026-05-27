@@ -19,7 +19,7 @@ const userProfileSelect = {
   businessType: true,
   gstNumber: true,
   isOnboardingCompleted: true,
-  role: true,
+  roles: true,
   addresses: true,
   createdAt: true,
   updatedAt: true,
@@ -49,7 +49,7 @@ export class UsersService {
         );
       }
       if (
-        user.role === UserRole.BUYER &&
+        user.roles.includes(UserRole.BUYER) &&
         !this.hasValidCoordinates(address.latitude, address.longitude)
       ) {
         throw new BadRequestException(

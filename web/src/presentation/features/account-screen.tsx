@@ -231,7 +231,7 @@ function profileFallback(
     businessType: "OTHER",
     gstNumber: null,
     isOnboardingCompleted: false,
-    role: "BUYER",
+    roles: ["BUYER"],
     addresses: [],
   };
 }

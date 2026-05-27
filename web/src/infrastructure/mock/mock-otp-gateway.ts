@@ -18,7 +18,7 @@ export function createMockOtpGateway(): OtpGateway {
         accessToken: "",
         userId: DEMO_USER_ID,
         phone: phone.trim() || null,
-        role: "BUYER",
+        roles: ["BUYER"],
         isOnboardingCompleted: false,
       };
     },

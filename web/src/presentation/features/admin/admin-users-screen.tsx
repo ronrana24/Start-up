@@ -110,9 +110,13 @@ export function AdminUsersScreen() {
                       </p>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex rounded-full border border-catalog-green-border bg-catalog-green-muted px-2.5 py-1 text-xs font-bold text-catalog-green">
-                        {statusLabel(user.role)}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {user.roles.map((r) => (
+                          <span key={r} className="inline-flex rounded-full border border-catalog-green-border bg-catalog-green-muted px-2.5 py-1 text-xs font-bold text-catalog-green">
+                            {statusLabel(r)}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-catalog-text">
@@ -135,7 +139,7 @@ export function AdminUsersScreen() {
                       {formatDateTime(user.createdAt)}
                     </td>
                     <td className="px-4 py-3">
-                      {user.role === "BUYER" ? (
+                      {user.roles.includes("BUYER") ? (
                         <Link
                           href={`/admin/users/${user.id}/analytics`}
                           className="text-xs font-bold text-catalog-green hover:underline"
@@ -151,7 +155,7 @@ export function AdminUsersScreen() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {user.role === "BUYER" ? (
+                      {user.roles.includes("BUYER") ? (
                         <Link
                           href={`/admin/users/${user.id}/pricing`}
                           className="text-xs font-bold text-catalog-blue hover:underline"

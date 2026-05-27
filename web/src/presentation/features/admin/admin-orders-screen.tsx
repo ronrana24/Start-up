@@ -102,6 +102,13 @@ function collectionStatusLabel(
   return "Not required";
 }
 
+function pricingSourceLabel(source: string): string {
+  if (source === "BATCH_MIXED") return "Multi-batch";
+  if (source === "SPECIAL_BATCH") return "Special rate";
+  if (source === "BATCH") return "Standard batch";
+  return source;
+}
+
 function paymentStatusClass(status?: AdminOrder["paymentStatus"]): string {
   if (status === "FAILED") return "border-red-200 bg-red-50 text-red-700";
   if (status === "PENDING")
@@ -330,6 +337,8 @@ export function AdminOrdersScreen() {
                                       item.product?.name ?? item.productId;
                                     const lineTotal =
                                       Number(item.priceApplied) * item.quantity;
+                                    const allocations =
+                                      item.batchAllocations ?? [];
                                     return (
                                       <div
                                         key={item.id}
@@ -356,12 +365,73 @@ export function AdminOrdersScreen() {
                                           <p className="text-xs text-catalog-text-muted">
                                             {item.product?.category ??
                                               "Uncategorized"}{" "}
-                                            - SKU {item.productId.slice(0, 8)}
+                                            · SKU {item.productId.slice(0, 8)}
                                           </p>
                                           <p className="mt-1 text-xs text-catalog-text-muted">
-                                            Qty {item.quantity} x{" "}
-                                            {formatInr(item.priceApplied)}
+                                            Qty {item.quantity} ×{" "}
+                                            {formatInr(item.priceApplied)}{" "}
+                                            blended
                                           </p>
+
+                                          {/* ── Batch pricing breakdown ── */}
+                                          {allocations.length > 0 ? (
+                                            <div className="mt-2 overflow-hidden rounded-lg border border-catalog-border bg-catalog-surface">
+                                              <div className="flex items-center gap-2 border-b border-catalog-border px-2.5 py-1.5">
+                                                <span className="text-[10px] font-black uppercase tracking-wide text-catalog-text-muted">
+                                                  Batch pricing
+                                                </span>
+                                                {item.pricingSnapshot
+                                                  ?.source ? (
+                                                  <span className="rounded-full border border-catalog-blue-light bg-catalog-blue-light px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-catalog-blue">
+                                                    {pricingSourceLabel(
+                                                      item.pricingSnapshot
+                                                        .source,
+                                                    )}
+                                                  </span>
+                                                ) : null}
+                                              </div>
+                                              <div className="divide-y divide-catalog-border/60">
+                                                {allocations.map((alloc) => (
+                                                  <div
+                                                    key={alloc.id}
+                                                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
+                                                  >
+                                                    <span className="w-16 shrink-0 rounded bg-catalog-green-muted px-1.5 py-0.5 text-center text-[10px] font-black text-catalog-green">
+                                                      Batch #
+                                                      {alloc.batch
+                                                        ?.batchNumber ?? "?"}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1 text-catalog-text-muted">
+                                                      {alloc.quantity} ×{" "}
+                                                      {formatInr(
+                                                        alloc.unitPrice,
+                                                      )}
+                                                    </span>
+                                                    <span className="shrink-0 font-bold text-catalog-text">
+                                                      {formatInr(
+                                                        Number(
+                                                          alloc.unitPrice,
+                                                        ) * alloc.quantity,
+                                                      )}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              {allocations.length > 1 ? (
+                                                <div className="border-t border-catalog-border bg-catalog-surface/50 px-2.5 py-1.5 text-xs">
+                                                  <span className="text-catalog-text-muted">
+                                                    Blended rate:{" "}
+                                                  </span>
+                                                  <span className="font-bold text-catalog-text">
+                                                    {formatInr(
+                                                      item.priceApplied,
+                                                    )}
+                                                    /unit
+                                                  </span>
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          ) : null}
                                         </div>
                                         <div className="text-left sm:text-right">
                                           <p className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">

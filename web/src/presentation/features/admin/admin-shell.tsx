@@ -26,16 +26,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const deps = useAppDependencies();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
-  const role = useAuthStore((s) => s.role);
+  const roles = useAuthStore((s) => s.roles);
   const clearSession = useAuthStore((s) => s.clearSession);
+  const isAdmin = roles?.includes("ADMIN") ?? false;
 
   useEffect(() => {
-    if (hasCheckedSession && (!isAuthenticated || role !== "ADMIN")) {
+    if (hasCheckedSession && (!isAuthenticated || !isAdmin)) {
       router.replace("/admin/login");
     }
-  }, [hasCheckedSession, isAuthenticated, role, router]);
+  }, [hasCheckedSession, isAuthenticated, isAdmin, router]);
 
-  if (!hasCheckedSession || !isAuthenticated || role !== "ADMIN") {
+  if (!hasCheckedSession || !isAuthenticated || !isAdmin) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-catalog-surface px-4">
         <div className="h-24 w-full max-w-md animate-pulse rounded-xl bg-catalog-input" />

@@ -67,7 +67,7 @@ export class PricingService {
     user: User | null | undefined,
     productIds: string[],
   ): Promise<Map<string, ActiveSpecialRule>> {
-    if (!user || user.role !== UserRole.BUYER || productIds.length === 0) {
+    if (!user || !user.roles.includes(UserRole.BUYER) || productIds.length === 0) {
       return new Map();
     }
     const rules = await this.prisma.userProductPricingRule.findMany({

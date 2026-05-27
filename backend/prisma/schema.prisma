@@ -104,7 +104,7 @@ model User {
   businessType          BusinessType              @default(OTHER)
   gstNumber             String?
   isOnboardingCompleted Boolean                   @default(false)
-  role                  UserRole                  @default(BUYER)
+  roles                 UserRole[]                @default([BUYER])
   addresses             Address[]
   orders                Order[]
   pricingRules          UserProductPricingRule[]  @relation("BuyerPricingRules")

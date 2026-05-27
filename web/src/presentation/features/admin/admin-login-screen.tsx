@@ -12,17 +12,17 @@ export function AdminLoginScreen() {
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const role = useAuthStore((s) => s.role);
+  const roles = useAuthStore((s) => s.roles);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthenticated && role === "ADMIN") {
+    if (isAuthenticated && roles?.includes("ADMIN")) {
       router.replace("/admin");
     }
-  }, [isAuthenticated, role, router]);
+  }, [isAuthenticated, roles, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

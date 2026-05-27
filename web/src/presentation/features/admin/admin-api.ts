@@ -98,6 +98,8 @@ function validateProductImageFiles(files: File[]): void {
   }
 }
 
+export type UserRole = "BUYER" | "ADMIN" | "RIDER";
+
 export type AdminUser = {
   id: string;
   phone: string;
@@ -106,7 +108,7 @@ export type AdminUser = {
   businessName: string;
   businessType: string;
   gstNumber: string | null;
-  role: AuthSession["role"];
+  roles: UserRole[];
   createdAt: string;
   updatedAt: string;
   _count?: { orders: number; addresses: number };
@@ -162,6 +164,30 @@ export type ProductCategoryEnum =
   | "TABLEWARE"
   | "PACKAGING_AND_CARRY_BAGS";
 
+export type OrderItemPricingSnapshot = {
+  source?: string;
+  blendedUnitPrice?: string;
+  batches?: Array<{
+    batchId: string;
+    batchNumber: number;
+    quantity: number;
+    unitPrice: string;
+    lineTotal: string;
+  }>;
+};
+
+export type AdminOrderItemBatchAllocation = {
+  id: string;
+  batchId: string;
+  quantity: number;
+  unitPrice: string | number;
+  batch?: {
+    batchNumber: number;
+    sellingPrice: string | number;
+    costPrice: string | number;
+  } | null;
+};
+
 export type AdminOrder = {
   id: string;
   status: OrderStatus;
@@ -195,7 +221,7 @@ export type AdminOrder = {
     | "businessName"
     | "businessType"
     | "gstNumber"
-    | "role"
+    | "roles"
   >;
   rider?: { id: string; name: string; phone: string } | null;
   items: Array<{
@@ -203,6 +229,7 @@ export type AdminOrder = {
     productId: string;
     quantity: number;
     priceApplied: string | number;
+    pricingSnapshot?: OrderItemPricingSnapshot | null;
     product?: {
       id: string;
       name: string;
@@ -210,6 +237,7 @@ export type AdminOrder = {
       unit: ProductUnit;
       imageUrls?: string[];
     } | null;
+    batchAllocations?: AdminOrderItemBatchAllocation[];
   }>;
   paymentTransactions?: Array<{
     id: string;
@@ -249,7 +277,7 @@ export type AdminProfileOrder = Pick<
   deliveryDistanceKm: number;
   user: Pick<
     AdminUser,
-    "id" | "phone" | "email" | "name" | "businessName" | "role"
+    "id" | "phone" | "email" | "name" | "businessName" | "roles"
   >;
   rider: {
     id: string;
@@ -631,7 +659,7 @@ export async function adminLogin(input: {
           user: {
             id: string;
             phone: string | null;
-            role: AuthSession["role"];
+            roles: AuthSession["roles"];
             isOnboardingCompleted?: boolean;
           };
         }
@@ -640,7 +668,7 @@ export async function adminLogin(input: {
           user: {
             id: string;
             phone: string | null;
-            role: AuthSession["role"];
+            roles: AuthSession["roles"];
             isOnboardingCompleted?: boolean;
           };
         }>
@@ -650,7 +678,7 @@ export async function adminLogin(input: {
     accessToken: body.accessToken,
     userId: body.user.id,
     phone: body.user.phone,
-    role: body.user.role,
+    roles: body.user.roles,
     isOnboardingCompleted: body.user.isOnboardingCompleted ?? false,
   };
 }
@@ -931,6 +959,20 @@ export async function getPricingRuleAudit(
       AdminPricingRuleAudit[] | ApiEnvelope<AdminPricingRuleAudit[]>
     >(apiBaseUrl(), `/api/admin/pricing-rules/${ruleId}/audit`, {
       method: "GET",
+    }),
+  );
+}
+
+export async function setUserRoles(
+  userId: string,
+  roles: UserRole[],
+): Promise<{ id: string; roles: UserRole[] }> {
+  return unwrapBody(
+    await apiJsonAuthorized<
+      { id: string; roles: UserRole[] } | ApiEnvelope<{ id: string; roles: UserRole[] }>
+    >(apiBaseUrl(), `/api/admin/users/${userId}/roles`, {
+      method: "PATCH",
+      body: { roles },
     }),
   );
 }

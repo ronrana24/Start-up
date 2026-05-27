@@ -51,7 +51,7 @@ export type UserProfile = {
   businessType: BusinessType;
   gstNumber?: string | null;
   isOnboardingCompleted: boolean;
-  role: "BUYER" | "ADMIN" | "RIDER";
+  roles: Array<"BUYER" | "ADMIN" | "RIDER">;
   addresses: UserAddress[];
 };
 

@@ -174,7 +174,7 @@ export class AdminService {
   async listUsers(params: { role?: UserRole; page: number; pageSize: number }) {
     const where: Prisma.UserWhereInput = {};
     if (params.role) {
-      where.role = params.role;
+      where.roles = { has: params.role };
     }
 
     const [items, total] = await Promise.all([
@@ -191,7 +191,7 @@ export class AdminService {
           businessName: true,
           businessType: true,
           gstNumber: true,
-          role: true,
+          roles: true,
           createdAt: true,
           updatedAt: true,
           _count: { select: { orders: true, addresses: true } },
@@ -208,6 +208,23 @@ export class AdminService {
     };
   }
 
+  /**
+   * Assign (replace) all roles for a user. Requires at least one role.
+   * Adding RIDER when no Rider record exists is allowed — the caller is
+   * responsible for also creating the Rider profile if needed.
+   */
+  async setUserRoles(userId: string, roles: UserRole[]) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { roles },
+      select: { id: true, roles: true },
+    });
+  }
+
   async userProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -220,7 +237,7 @@ export class AdminService {
         businessType: true,
         gstNumber: true,
         isOnboardingCompleted: true,
-        role: true,
+        roles: true,
         googleId: true,
         passwordHash: true,
         createdAt: true,
@@ -298,7 +315,7 @@ export class AdminService {
           email: true,
           name: true,
           businessName: true,
-          role: true,
+          roles: true,
         },
       },
       rider: {
@@ -468,7 +485,7 @@ export class AdminService {
         businessName: user.businessName,
         businessType: user.businessType,
         gstNumber: user.gstNumber,
-        role: user.role,
+        roles: user.roles,
         isOnboardingCompleted: user.isOnboardingCompleted,
         createdAt: user.createdAt.toISOString(),
         updatedAt: user.updatedAt.toISOString(),
@@ -561,7 +578,7 @@ export class AdminService {
       lowStock,
       buyers,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { role: UserRole.BUYER } }),
+      this.prisma.user.count({ where: { roles: { has: UserRole.BUYER } } }),
       this.prisma.product.count(),
       this.prisma.order.findMany({
         where: orderWhere,
@@ -604,7 +621,7 @@ export class AdminService {
         },
       }),
       this.prisma.user.findMany({
-        where: { role: UserRole.BUYER },
+        where: { roles: { has: UserRole.BUYER } },
         select: {
           id: true,
           phone: true,
@@ -1065,7 +1082,7 @@ export class AdminService {
     const range = normalizeRange(inputRange);
     const orderWhere = createdAtFilter(range);
     const user = await this.prisma.user.findFirst({
-      where: { id: userId, role: UserRole.BUYER },
+      where: { id: userId, roles: { has: UserRole.BUYER } },
       select: {
         id: true,
         phone: true,

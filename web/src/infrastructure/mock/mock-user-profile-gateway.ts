@@ -30,7 +30,7 @@ let mockProfile: UserProfile = {
   businessType: "FOOD_AND_BEVERAGE",
   gstNumber: null,
   isOnboardingCompleted: false,
-  role: "BUYER",
+  roles: ["BUYER"],
   addresses: mockAddresses,
 };
 

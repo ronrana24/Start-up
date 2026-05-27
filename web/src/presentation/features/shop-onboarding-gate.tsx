@@ -12,12 +12,12 @@ export function ShopOnboardingGate({
   const hasCheckedSession = useAuthStore((s) => s.hasCheckedSession);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isOnboardingCompleted = useAuthStore((s) => s.isOnboardingCompleted);
-  const role = useAuthStore((s) => s.role);
+  const roles = useAuthStore((s) => s.roles);
   const router = useRouter();
   const requiresOnboarding =
     hasCheckedSession &&
     isAuthenticated &&
-    role !== "ADMIN" &&
+    !roles?.includes("ADMIN") &&
     !isOnboardingCompleted;
 
   useEffect(() => {

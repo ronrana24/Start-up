@@ -9,7 +9,7 @@ import { useEffect } from "react";
 type ApiUser = {
   id: string;
   phone: string | null;
-  role: "BUYER" | "ADMIN" | "RIDER";
+  roles: Array<"BUYER" | "ADMIN" | "RIDER">;
   isOnboardingCompleted: boolean;
 };
 
@@ -52,7 +52,7 @@ export function SessionBootstrap() {
           accessToken: null,
           userId: user.id,
           phone: user.phone,
-          role: user.role,
+          roles: user.roles,
           isOnboardingCompleted: user.isOnboardingCompleted,
         });
         setOnboardingCompleted(user.isOnboardingCompleted);

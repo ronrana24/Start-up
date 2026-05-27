@@ -3,14 +3,16 @@
 import { cn } from "@presentation/lib/cn";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import {
   getAdminUserProfile,
+  setUserRoles,
   type AdminAddress,
   type AdminProfileOrder,
   type AdminUserProfile,
   type OrderStatus,
   type PricingDiscountType,
+  type UserRole,
 } from "./admin-api";
 import { formatDateTime, formatInr, statusLabel } from "./admin-format";
 import { useAdminQuery } from "./use-admin-query";
@@ -74,14 +76,21 @@ function roleBadgeClass(role: string): string {
   return "border-catalog-green-border bg-catalog-green-muted text-catalog-green";
 }
 
-function permissionSummary(role: string): string {
-  if (role === "ADMIN") {
-    return "Can access admin operations, user oversight, catalog, orders, and analytics.";
-  }
-  if (role === "RIDER") {
-    return "Can access rider workflows, delivery assignment, location updates, and order fulfillment tools.";
-  }
-  return "Can access buyer catalog, cart, checkout, order history, and buyer-specific pricing.";
+function permissionSummary(roles: string[]): string {
+  const parts: string[] = [];
+  if (roles.includes("ADMIN"))
+    parts.push(
+      "Admin operations, user oversight, catalog, orders, and analytics.",
+    );
+  if (roles.includes("RIDER"))
+    parts.push(
+      "Rider workflows, delivery assignment, location updates, and order fulfillment.",
+    );
+  if (roles.includes("BUYER"))
+    parts.push(
+      "Buyer catalog, cart, checkout, order history, and buyer-specific pricing.",
+    );
+  return parts.length ? parts.join(" ") : "No specific permissions assigned.";
 }
 
 function addressText(address: AdminAddress): string {
@@ -395,6 +404,126 @@ function SkeletonView() {
   );
 }
 
+const ALL_ROLES: UserRole[] = ["BUYER", "ADMIN", "RIDER"];
+const ROLE_LABELS: Record<UserRole, string> = {
+  BUYER: "Buyer",
+  ADMIN: "Admin",
+  RIDER: "Rider",
+};
+const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+  BUYER: "Can browse catalog, place orders, and manage their account.",
+  ADMIN: "Can manage products, orders, users, pricing, and view analytics.",
+  RIDER: "Can accept delivery assignments and update delivery status.",
+};
+
+function RoleManager({
+  userId,
+  currentRoles,
+  onSaved,
+}: {
+  userId: string;
+  currentRoles: UserRole[];
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<UserRole[]>(currentRoles);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const isDirty =
+    selected.length !== currentRoles.length ||
+    selected.some((r) => !currentRoles.includes(r));
+
+  const toggle = useCallback((role: UserRole) => {
+    setSelected((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+    );
+    setSuccess(false);
+    setError(null);
+  }, []);
+
+  async function handleSave() {
+    if (selected.length === 0) {
+      setError("A user must have at least one role.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await setUserRoles(userId, selected);
+      setSuccess(true);
+      onSaved();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not update roles.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-catalog-border bg-catalog-surface p-4">
+      <p className="mb-3 text-xs font-black uppercase tracking-wide text-catalog-text-muted">
+        Manage roles
+      </p>
+      <div className="space-y-2">
+        {ALL_ROLES.map((role) => {
+          const checked = selected.includes(role);
+          return (
+            <label
+              key={role}
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
+                checked
+                  ? "border-catalog-green bg-catalog-green-muted/60"
+                  : "border-catalog-border bg-card hover:bg-catalog-surface",
+              )}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-catalog-green"
+                checked={checked}
+                onChange={() => toggle(role)}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-catalog-text">
+                  {ROLE_LABELS[role]}
+                </span>
+                <span className="block text-xs text-catalog-text-muted">
+                  {ROLE_DESCRIPTIONS[role]}
+                </span>
+              </span>
+              <StatusBadge className={roleBadgeClass(role)}>
+                {ROLE_LABELS[role]}
+              </StatusBadge>
+            </label>
+          );
+        })}
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs font-bold text-red-600" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {success ? (
+        <p className="mt-2 text-xs font-bold text-catalog-green">
+          Roles updated successfully.
+        </p>
+      ) : null}
+      <button
+        type="button"
+        disabled={saving || !isDirty || selected.length === 0}
+        onClick={() => void handleSave()}
+        className="mt-3 inline-flex min-h-9 w-full items-center justify-center rounded-lg bg-catalog-green px-4 text-sm font-bold text-white transition-colors hover:bg-catalog-green-hover disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Save roles"}
+      </button>
+    </div>
+  );
+}
+
 export function AdminUserDetailScreen() {
   const params = useParams<{ userId?: string | string[] }>();
   const userId = Array.isArray(params.userId)
@@ -407,7 +536,7 @@ export function AdminUserDetailScreen() {
 
   const primaryRecentOrders = useMemo(() => {
     if (!data) return [];
-    return data.profile.role === "RIDER"
+    return data.profile.roles.includes("RIDER")
       ? data.activity.riderRecentOrders
       : data.activity.buyerRecentOrders;
   }, [data]);
@@ -469,9 +598,11 @@ export function AdminUserDetailScreen() {
                 {userName}
               </h1>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <StatusBadge className={roleBadgeClass(profile.role)}>
-                  {statusLabel(profile.role)}
-                </StatusBadge>
+                {profile.roles.map((r) => (
+                  <StatusBadge key={r} className={roleBadgeClass(r)}>
+                    {statusLabel(r)}
+                  </StatusBadge>
+                ))}
                 <StatusBadge
                   className={
                     profile.isOnboardingCompleted
@@ -492,7 +623,7 @@ export function AdminUserDetailScreen() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {profile.role === "BUYER" ? (
+            {profile.roles.includes("BUYER") ? (
               <>
                 <Link
                   href={`/admin/users/${profile.id}/analytics`}
@@ -533,16 +664,16 @@ export function AdminUserDetailScreen() {
           hint={`${formatCount(profile.counts.pricingRules)} pricing rules`}
         />
         <MetricCard
-          label={profile.role === "RIDER" ? "Rider deliveries" : "Last active"}
+          label={profile.roles.includes("RIDER") ? "Rider deliveries" : "Last active"}
           value={
-            profile.role === "RIDER"
+            profile.roles.includes("RIDER")
               ? formatCount(orderStats.rider.totalOrders)
               : activity.lastActiveAt
                 ? formatDateTime(activity.lastActiveAt)
                 : "No activity"
           }
           hint={
-            profile.role === "RIDER"
+            profile.roles.includes("RIDER")
               ? `${formatDistance(orderStats.rider.totalDistanceKm)} tracked distance`
               : "Latest user, order, or device signal"
           }
@@ -637,7 +768,7 @@ export function AdminUserDetailScreen() {
           <SectionCard title="Recent Activity">
             <RecentOrdersTable
               orders={primaryRecentOrders}
-              perspective={profile.role === "RIDER" ? "rider" : "buyer"}
+              perspective={profile.roles.includes("RIDER") ? "rider" : "buyer"}
             />
           </SectionCard>
         </div>
@@ -646,9 +777,11 @@ export function AdminUserDetailScreen() {
           <SectionCard title="Account Status">
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
-                <StatusBadge className={roleBadgeClass(profile.role)}>
-                  {statusLabel(profile.role)}
-                </StatusBadge>
+                {profile.roles.map((r) => (
+                  <StatusBadge key={r} className={roleBadgeClass(r)}>
+                    {statusLabel(r)}
+                  </StatusBadge>
+                ))}
                 <StatusBadge
                   className={
                     profile.isOnboardingCompleted
@@ -660,7 +793,7 @@ export function AdminUserDetailScreen() {
                 </StatusBadge>
               </div>
               <p className="text-sm leading-relaxed text-catalog-text-muted">
-                {permissionSummary(profile.role)}
+                {permissionSummary(profile.roles)}
               </p>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <CopyField
@@ -676,6 +809,11 @@ export function AdminUserDetailScreen() {
                   value={formatDateTime(profile.updatedAt)}
                 />
               </div>
+              <RoleManager
+                userId={profile.id}
+                currentRoles={profile.roles as UserRole[]}
+                onSaved={() => void refetch()}
+              />
             </div>
           </SectionCard>
 
@@ -690,7 +828,7 @@ export function AdminUserDetailScreen() {
                 </p>
                 <StatusBreakdown rows={orderStats.buyer.byStatus} />
               </div>
-              {profile.role === "RIDER" || rider ? (
+              {profile.roles.includes("RIDER") || rider ? (
                 <div>
                   <p className="mb-2 text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
                     Rider lifecycle

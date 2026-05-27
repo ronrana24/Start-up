@@ -12,9 +12,17 @@ import { useAdminQuery } from "./use-admin-query";
 import { ProductCategory } from "../../../../public/constants/product-category";
 
 const allCategories = "ALL";
+const lowStockCategory = "__LOW_STOCK__";
+const outOfStockCategory = "__OUT_OF_STOCK__";
 
 function formatCount(value: number | string): string {
   return new Intl.NumberFormat("en-IN").format(Number(value));
+}
+
+function stockStateFromQty(qty: number): "out" | "low" | "ok" {
+  if (qty <= 0) return "out";
+  if (qty < 10) return "low";
+  return "ok";
 }
 
 function ProductCard({
@@ -28,6 +36,8 @@ function ProductCard({
   const imageUrls = (product.imageUrls ?? []).filter(Boolean);
   const [isDeleting, setIsDeleting] = useState(false);
   const editHref = `/admin/products/${product.id}/edit`;
+  const availableQty = product.totalAvailableQty ?? 0;
+  const stockState = stockStateFromQty(availableQty);
 
   function goToEdit() {
     router.push(editHref);
@@ -100,12 +110,39 @@ function ProductCard({
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-catalog-border bg-catalog-surface p-3">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-catalog-text-muted">
+          <div
+            className={cn(
+              "rounded-lg border p-3",
+              stockState === "out"
+                ? "border-red-200 bg-red-50"
+                : stockState === "low"
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-catalog-border bg-catalog-surface",
+            )}
+          >
+            <p
+              className={cn(
+                "text-[10px] font-bold uppercase tracking-wide",
+                stockState === "out"
+                  ? "text-red-500"
+                  : stockState === "low"
+                    ? "text-amber-600"
+                    : "text-catalog-text-muted",
+              )}
+            >
               Available
             </p>
-            <p className="mt-1 text-lg font-black text-catalog-text">
-              {formatCount(product.totalAvailableQty ?? 0)}
+            <p
+              className={cn(
+                "mt-1 text-lg font-black",
+                stockState === "out"
+                  ? "text-red-600"
+                  : stockState === "low"
+                    ? "text-amber-700"
+                    : "text-catalog-text",
+              )}
+            >
+              {formatCount(availableQty)}
             </p>
           </div>
           <div className="rounded-lg border border-catalog-border bg-catalog-surface p-3">
@@ -130,6 +167,15 @@ function ProductCard({
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
+            {stockState === "out" ? (
+              <span className="rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-black text-red-600">
+                Out of Stock
+              </span>
+            ) : stockState === "low" ? (
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-black text-amber-700">
+                Low Stock
+              </span>
+            ) : null}
             <span
               className={cn(
                 "rounded-full px-2.5 py-1 text-[10px] font-black",
@@ -160,20 +206,39 @@ export function AdminProductsScreen() {
   );
 
   const products = useMemo(() => data?.items ?? [], [data?.items]);
+  const hasLowStock = useMemo(
+    () =>
+      products.some((product) => stockStateFromQty(product.totalAvailableQty ?? 0) === "low"),
+    [products],
+  );
+  const hasOutOfStock = useMemo(
+    () =>
+      products.some((product) => stockStateFromQty(product.totalAvailableQty ?? 0) === "out"),
+    [products],
+  );
   const categories = useMemo(
     () => [
       allCategories,
       ...Array.from(
         new Set(products.map((product) => product.category)),
       ).sort(),
+      ...(hasLowStock ? [lowStockCategory] : []),
+      ...(hasOutOfStock ? [outOfStockCategory] : []),
     ],
-    [products],
+    [hasLowStock, hasOutOfStock, products],
   );
   const visibleProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
     return products.filter((product) => {
+      const stockState = stockStateFromQty(product.totalAvailableQty ?? 0);
       const matchesCategory =
-        category === allCategories || product.category === category;
+        category === allCategories
+          ? true
+          : category === lowStockCategory
+            ? stockState === "low"
+            : category === outOfStockCategory
+              ? stockState === "out"
+              : product.category === category;
       const matchesSearch =
         !term ||
         product.name.toLowerCase().includes(term) ||
@@ -225,7 +290,14 @@ export function AdminProductsScreen() {
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           {categories.map((option) => {
             const active = category === option;
-            const label = option === allCategories ? "All" : option;
+            const label =
+              option === allCategories
+                ? "All"
+                : option === lowStockCategory
+                  ? "Low Stock"
+                  : option === outOfStockCategory
+                    ? "Out of Stock"
+                    : (ProductCategory[option as keyof typeof ProductCategory] ?? option);
             return (
               <button
                 key={option}
@@ -238,7 +310,7 @@ export function AdminProductsScreen() {
                 )}
                 onClick={() => setCategory(option)}
               >
-                {label === 'All' ? "All" : ProductCategory[label as keyof typeof ProductCategory]}
+                {label}
               </button>
             );
           })}

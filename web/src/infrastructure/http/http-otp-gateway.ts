@@ -6,7 +6,7 @@ import { apiJsonPost } from "@infrastructure/http/http-client";
 type ApiUser = {
   id: string;
   phone: string | null;
-  role: AuthSession["role"];
+  roles: AuthSession["roles"];
   isOnboardingCompleted?: boolean;
 };
 type VerifyOtpBody = {
@@ -27,7 +27,7 @@ function sessionFromVerifyBody(body: VerifyOtpBody): AuthSession {
     accessToken: body.accessToken,
     userId: body.user.id,
     phone: body.user.phone,
-    role: body.user.role,
+    roles: body.user.roles,
     isOnboardingCompleted: body.user.isOnboardingCompleted ?? false,
   };
 }

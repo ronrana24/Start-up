@@ -72,13 +72,16 @@ export class DeliveryGateway
     }
 
     client.data = { user } satisfies DeliverySocketData;
-    await client.join([`user:${user.id}`, `role:${user.role}`]);
+    await client.join([
+      `user:${user.id}`,
+      ...user.roles.map((r) => `role:${r}`),
+    ]);
 
-    if (user.role === UserRole.ADMIN) {
+    if (user.roles.includes(UserRole.ADMIN)) {
       await client.join('admin');
     }
 
-    if (user.role === UserRole.RIDER) {
+    if (user.roles.includes(UserRole.RIDER)) {
       const rider = await this.prisma.rider.findUnique({
         where: { userId: user.id },
       });
@@ -130,7 +133,7 @@ export class DeliveryGateway
 
     const riderId = (client.data as DeliverySocketData).riderId;
     const canSubscribe =
-      user.role === UserRole.ADMIN ||
+      user.roles.includes(UserRole.ADMIN) ||
       order.userId === user.id ||
       (riderId != null && order.riderId === riderId);
 

@@ -21,6 +21,7 @@ import { QueryAdminAnalyticsDto } from './dto/query-admin-analytics.dto';
 import { PatchOrderStatusDto } from './dto/patch-order-status.dto';
 import { QueryAdminOrdersDto } from './dto/query-admin-orders.dto';
 import { QueryAdminUsersDto } from './dto/query-admin-users.dto';
+import { SetUserRolesDto } from './dto/set-user-roles.dto';
 import { OrdersService } from '../orders/orders.service';
 import { AdminService } from './admin.service';
 
@@ -62,6 +63,11 @@ export class AdminController {
   @Get('users/:id')
   userProfile(@Param('id') id: string) {
     return this.admin.userProfile(id);
+  }
+
+  @Patch('users/:id/roles')
+  setUserRoles(@Param('id') id: string, @Body() dto: SetUserRolesDto) {
+    return this.admin.setUserRoles(id, dto.roles);
   }
 
   @Get('products/:id/analytics')

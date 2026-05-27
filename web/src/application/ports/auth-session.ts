@@ -1,7 +1,9 @@
+import { UserRole } from "@/presentation/features/admin/admin-api";
+
 export type AuthSession = {
   accessToken: string | null;
   userId: string;
   phone: string | null;
-  role: "BUYER" | "ADMIN" | "RIDER";
+  roles: UserRole[];
   isOnboardingCompleted: boolean;
 };

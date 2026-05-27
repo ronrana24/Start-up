@@ -9,7 +9,7 @@ type AuthState = {
   isAuthenticated: boolean;
   hasCheckedSession: boolean;
   userId: string | null;
-  role: AuthSession["role"] | null;
+  roles: AuthSession["roles"] | null;
   isOnboardingCompleted: boolean;
   setSession: (session: AuthSession) => void;
   markOnboardingCompleted: () => void;
@@ -23,7 +23,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   hasCheckedSession: false,
   userId: null,
-  role: null,
+  roles: null,
   isOnboardingCompleted: false,
   setSession: (session: AuthSession) =>
     set({
@@ -32,7 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: true,
       hasCheckedSession: true,
       userId: session.userId,
-      role: session.role,
+      roles: session.roles,
       isOnboardingCompleted: session.isOnboardingCompleted,
     }),
   markOnboardingCompleted: () => set({ isOnboardingCompleted: true }),
@@ -44,7 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAuthenticated: false,
       hasCheckedSession: true,
       userId: null,
-      role: null,
+      roles: null,
       isOnboardingCompleted: false,
     }),
 }));
