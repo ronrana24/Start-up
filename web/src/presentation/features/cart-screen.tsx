@@ -244,9 +244,21 @@ export function CartScreen() {
           </div>
         </section>
 
+        {lines.some((l) => l.hasMixedBatches) ? (
+          <p className="mx-3 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+            Your order includes items from multiple inventory batches with
+            different pricing.
+          </p>
+        ) : null}
+
         <section className="flex flex-col gap-2 p-3">
           {lines.map((line) => {
-            const lineTotal = line.unitPriceCents * line.quantity;
+            const segments = line.batchBreakdown ?? [];
+            const fallbackLineTotal = line.unitPriceCents * line.quantity;
+            const lineTotal =
+              segments.length > 0
+                ? segments.reduce((sum, seg) => sum + seg.lineTotalCents, 0)
+                : fallbackLineTotal;
             const productHref = productPathById(line.productId, line.title);
             return (
               <article
@@ -325,6 +337,33 @@ export function CartScreen() {
                   </div>
                 </div>
 
+                {segments.length > 0 ? (
+                  <div className="rounded-lg border border-default/40 bg-secondary-bg/50 p-2">
+                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                      Batch pricing
+                    </p>
+                    <ul className="space-y-1">
+                      {segments.map((seg) => (
+                        <li
+                          key={seg.batchId}
+                          className="flex items-center justify-between text-[11px] text-heading"
+                        >
+                          <span>
+                            {seg.quantity} ×{" "}
+                            {formatMoney(seg.unitPriceCents, line.currency)}
+                            <span className="ml-1 text-[10px] text-muted">
+                              (Batch #{seg.batchNumber})
+                            </span>
+                          </span>
+                          <span className="font-semibold">
+                            {formatMoney(seg.lineTotalCents, line.currency)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
                 <div
                   className="flex items-center justify-between rounded-lg border border-default/40 bg-secondary-bg/80 p-1.5"
                   onClick={(event) => event.stopPropagation()}
@@ -332,8 +371,9 @@ export function CartScreen() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-muted shadow-sm transition-colors hover:text-heading"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-muted shadow-sm transition-colors hover:text-heading disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted"
                       aria-label="Decrease quantity"
+                      disabled={line.quantity <= 1}
                       onClick={(event) => {
                         event.stopPropagation();
                         setQuantity(line.productId, line.quantity - 1);
@@ -346,8 +386,17 @@ export function CartScreen() {
                     </span>
                     <button
                       type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-heading shadow-sm transition-colors hover:bg-secondary-bg"
-                      aria-label="Increase quantity"
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-default bg-card text-heading shadow-sm transition-colors hover:bg-secondary-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card"
+                      aria-label={
+                        line.maxAvailableQty != null &&
+                        line.quantity >= line.maxAvailableQty
+                          ? `No more stock available (max ${line.maxAvailableQty})`
+                          : "Increase quantity"
+                      }
+                      disabled={
+                        line.maxAvailableQty != null &&
+                        line.quantity >= line.maxAvailableQty
+                      }
                       onClick={(event) => {
                         event.stopPropagation();
                         setQuantity(line.productId, line.quantity + 1);
@@ -357,7 +406,11 @@ export function CartScreen() {
                     </button>
                   </div>
                   <span className="text-[10px] font-medium text-muted">
-                    Qty
+                    {line.maxAvailableQty != null
+                      ? line.quantity >= line.maxAvailableQty
+                        ? `Max ${line.maxAvailableQty}`
+                        : `Qty · ${line.maxAvailableQty} avail.`
+                      : "Qty"}
                   </span>
                 </div>
 

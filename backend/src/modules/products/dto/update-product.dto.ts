@@ -6,16 +6,13 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
   Length,
   Min,
-  ValidateNested,
 } from 'class-validator';
-import { ProductUnit } from '@prisma/client';
-import { BulkPricingTierDto } from './bulk-pricing-tier.dto';
+import { ProductCategory, ProductUnit } from '@prisma/client';
 
 export class UpdateProductDto {
   @IsOptional()
@@ -24,9 +21,8 @@ export class UpdateProductDto {
   name?: string;
 
   @IsOptional()
-  @IsString()
-  @Length(1, 100)
-  category?: string;
+  @IsEnum(ProductCategory)
+  category?: ProductCategory;
 
   @IsOptional()
   @IsEnum(ProductUnit)
@@ -43,18 +39,6 @@ export class UpdateProductDto {
   isPublic?: boolean;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  basePrice?: number;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => BulkPricingTierDto)
-  bulkPricingTiers?: BulkPricingTierDto[];
-
-  @IsOptional()
   @IsArray()
   @ArrayMinSize(4, { message: 'Add at least 4 product images.' })
   @ArrayMaxSize(10, { message: 'You can add up to 10 product images.' })
@@ -67,10 +51,4 @@ export class UpdateProductDto {
     { each: true },
   )
   imageUrls?: string[];
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  initialAvailableQty?: number;
 }

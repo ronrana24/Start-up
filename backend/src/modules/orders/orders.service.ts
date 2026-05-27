@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -75,8 +77,16 @@ function mapOrderStatusToLineStatus(
   return 'processing';
 }
 
+/** Postgres serialization-failure (40001), surfaced by Prisma as P2034. */
+const PRISMA_SERIALIZATION_ERROR_CODE = 'P2034';
+/** Postgres write conflict (40P01 / 40001 variants). */
+const PRISMA_DEADLOCK_ERROR_CODE = 'P2024';
+const ORDER_TX_MAX_ATTEMPTS = 3;
+
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -87,6 +97,58 @@ export class OrdersService {
     private readonly payments: PaymentsService,
   ) {}
 
+  /**
+   * Retry the serializable order-creation transaction on transient
+   * Postgres serialization failures (P2034) / lock timeouts (P2024).
+   * Other errors are propagated immediately. After the final attempt
+   * we surface a friendly `ConflictException` instead of leaking the
+   * underlying Prisma error to the buyer.
+   */
+  private async runSerializableOrderTx<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= ORDER_TX_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await this.prisma.$transaction(fn, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        lastError = error;
+        if (error instanceof ConflictException) {
+          throw error;
+        }
+        const code = (error as { code?: string })?.code;
+        const transient =
+          code === PRISMA_SERIALIZATION_ERROR_CODE ||
+          code === PRISMA_DEADLOCK_ERROR_CODE;
+        if (!transient || attempt === ORDER_TX_MAX_ATTEMPTS) {
+          if (transient) {
+            this.logger.warn(
+              `Order transaction failed after ${attempt} attempts: ${code}`,
+            );
+            throw new ConflictException({
+              code: 'CONFLICT',
+              message:
+                'Other buyers were checking out at the same moment. Please review your cart and try again.',
+            });
+          }
+          throw error;
+        }
+        this.logger.debug(
+          `Order transaction retrying (${attempt}/${ORDER_TX_MAX_ATTEMPTS}) after ${code}`,
+        );
+      }
+    }
+    // Unreachable, but keeps TS happy if the loop exits without returning.
+    throw lastError instanceof Error
+      ? lastError
+      : new ConflictException({
+          code: 'CONFLICT',
+          message: 'Could not place order. Please try again.',
+        });
+  }
+
   async create(user: User, dto: CreateOrderDto) {
     const address = await this.users.assertAddressOwned(user.id, dto.addressId);
     const merged = mergeQuantitiesByProductId(dto.items);
@@ -94,7 +156,7 @@ export class OrdersService {
 
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
-      include: { inventory: true },
+      include: { batches: true },
     });
     if (products.length !== productIds.length) {
       throw new BadRequestException('One or more products were not found');
@@ -103,13 +165,11 @@ export class OrdersService {
     const lines = productIds.map((productId) => {
       const product = products.find((p) => p.id === productId)!;
       const qty = merged.get(productId)!;
-      const inv = product.inventory;
-      if (!inv) {
-        throw new BadRequestException(
-          `Product ${productId} has no inventory record`,
-        );
-      }
-      if (inv.availableQty < qty) {
+      const totalAvailable = product.batches.reduce(
+        (n, b) => n + b.quantity,
+        0,
+      );
+      if (totalAvailable < qty) {
         throw new BadRequestException(
           `Insufficient stock for product ${product.name}`,
         );
@@ -148,47 +208,120 @@ export class OrdersService {
       ...(coordinates ? { coordinates } : {}),
     };
 
-    const order = await this.prisma.$transaction(
+    const order = await this.runSerializableOrderTx(
       async (tx) => {
+        // Re-allocate inside the serializable tx so the price segments the
+        // buyer is charged exactly match the batches we decrement. We can't
+        // reuse the pre-tx allocation snapshot because another buyer may
+        // have drained a batch between quote and place.
+        type CommittedLine = {
+          productId: string;
+          quantity: number;
+          allocations: Array<{
+            batchId: string;
+            batchNumber: number;
+            quantity: number;
+            unitPrice: Prisma.Decimal;
+            lineTotal: Prisma.Decimal;
+          }>;
+          blendedUnitPrice: Prisma.Decimal;
+          lineTotal: Prisma.Decimal;
+          pricingSnapshot: Prisma.InputJsonValue;
+        };
+        const committed: CommittedLine[] = [];
+        let committedSubtotal = new Prisma.Decimal(0);
         for (const line of pricedLines) {
-          await this.inventory.reserveInTransaction(
+          const allocations = await this.inventory.reserveInTransaction(
             tx,
             line.productId,
             line.quantity,
           );
+          // Recompute pricing from the fresh allocations using the same
+          // tier + special-rule logic the cart preview used. This keeps the
+          // recorded snapshot internally consistent even if another buyer
+          // drained a batch between the quote and this transaction.
+          const rule = await this.pricing.resolveActiveRule(
+            user,
+            line.productId,
+          );
+          const priced = this.pricing.buildLineFromAllocations(
+            line.productId,
+            line.quantity,
+            allocations,
+            rule,
+          );
+          committed.push({
+            productId: priced.productId,
+            quantity: priced.quantity,
+            allocations: priced.batches.map((b) => ({
+              batchId: b.batchId,
+              batchNumber: b.batchNumber,
+              quantity: b.quantity,
+              unitPrice: b.unitPrice,
+              lineTotal: b.lineTotal,
+            })),
+            blendedUnitPrice: priced.unitPrice,
+            lineTotal: priced.lineTotal,
+            pricingSnapshot: priced.pricingSnapshot,
+          });
+          committedSubtotal = committedSubtotal.add(priced.lineTotal);
         }
+
+        const committedDeliveryFee = this.pricing.deliveryFee(
+          dto.deliveryType,
+          committedSubtotal,
+        );
+        const committedTotal = committedSubtotal.add(committedDeliveryFee);
+        const committedPaymentSummary = this.payments.paymentSummaryForCreate(
+          committedTotal,
+          dto.paymentOption === CheckoutPaymentOption.PARTIAL_UPI,
+        );
 
         const order = await tx.order.create({
           data: {
             userId: user.id,
             status: OrderStatus.PLACED,
             deliveryType: dto.deliveryType,
-            deliveryFee,
-            subtotalAmount: subtotal,
-            totalAmount: total,
+            deliveryFee: committedDeliveryFee,
+            subtotalAmount: committedSubtotal,
+            totalAmount: committedTotal,
             addressSnapshot,
-            paymentMode: paymentSummary.paymentMode,
+            paymentMode: committedPaymentSummary.paymentMode,
             paymentStatus: PaymentStatus.PENDING,
             paidAmount: 0,
-            dueAmount: paymentSummary.dueAmount,
-            paymentCollectionRequired: paymentSummary.paymentCollectionRequired,
-            collectionStatus: paymentSummary.collectionStatus,
-            collectionInstructions: paymentSummary.collectionInstructions,
+            dueAmount: committedPaymentSummary.dueAmount,
+            paymentCollectionRequired:
+              committedPaymentSummary.paymentCollectionRequired,
+            collectionStatus: committedPaymentSummary.collectionStatus,
+            collectionInstructions:
+              committedPaymentSummary.collectionInstructions,
             items: {
-              create: pricedLines.map((l) => ({
+              create: committed.map((l) => ({
                 productId: l.productId,
                 quantity: l.quantity,
-                priceApplied: l.unitPrice,
+                priceApplied: l.blendedUnitPrice,
                 pricingSnapshot: l.pricingSnapshot,
               })),
             },
           },
           include: { items: true },
         });
+
+        for (const item of order.items) {
+          const match = committed.find((l) => l.productId === item.productId);
+          if (!match) continue;
+          for (const allocation of match.allocations) {
+            await tx.orderItemBatchAllocation.create({
+              data: {
+                orderItemId: item.id,
+                batchId: allocation.batchId,
+                quantity: allocation.quantity,
+                unitPrice: allocation.unitPrice,
+              },
+            });
+          }
+        }
         return order;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
 
@@ -281,7 +414,19 @@ export class OrdersService {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, userId },
       include: {
-        items: { include: { product: { select: { name: true } } } },
+        items: {
+          include: {
+            product: { select: { name: true } },
+            batchAllocations: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                batch: {
+                  select: { batchNumber: true, sellingPrice: true },
+                },
+              },
+            },
+          },
+        },
         rider: true,
       },
     });
@@ -334,7 +479,7 @@ export class OrdersService {
   async updateStatus(orderId: string, next: OrderStatus) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      include: { items: { include: { batchAllocations: true } } },
     });
     if (!order) {
       throw new NotFoundException('Order not found');
@@ -359,22 +504,17 @@ export class OrdersService {
     await this.prisma.$transaction(async (tx) => {
       if (next === OrderStatus.CANCELLED && !isTerminalStatus(order.status)) {
         for (const item of order.items) {
-          await this.inventory.releaseReservationInTransaction(
+          await this.inventory.restoreInTransaction(
             tx,
-            item.productId,
-            item.quantity,
+            item.batchAllocations.map((a) => ({
+              batchId: a.batchId,
+              quantity: a.quantity,
+            })),
           );
         }
       }
-      if (next === OrderStatus.DELIVERED && order.status !== next) {
-        for (const item of order.items) {
-          await this.inventory.consumeReservedInTransaction(
-            tx,
-            item.productId,
-            item.quantity,
-          );
-        }
-      }
+      // On delivery the batch quantity stays decremented — the goods have left
+      // the warehouse, no further inventory adjustment needed.
 
       if (
         (next === OrderStatus.DELIVERED || next === OrderStatus.CANCELLED) &&
@@ -538,7 +678,7 @@ export class OrdersService {
     await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({
         where: { id: orderId },
-        include: { items: true },
+        include: { items: { include: { batchAllocations: true } } },
       });
       if (
         !order ||
@@ -548,10 +688,12 @@ export class OrdersService {
         return;
       }
       for (const item of order.items) {
-        await this.inventory.releaseReservationInTransaction(
+        await this.inventory.restoreInTransaction(
           tx,
-          item.productId,
-          item.quantity,
+          item.batchAllocations.map((a) => ({
+            batchId: a.batchId,
+            quantity: a.quantity,
+          })),
         );
       }
       await tx.order.update({

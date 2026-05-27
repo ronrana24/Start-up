@@ -35,7 +35,10 @@ import { productPath } from "@presentation/lib/product-url";
 import { useCartStore } from "@presentation/state/cart-store";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+/** How long each image stays visible before the next one fades in. */
+const HERO_AUTO_ROTATE_INTERVAL_MS = 4500;
 
 function tierQuantityLabel(t: BulkTier): string {
   if (t.maxCases == null) {
@@ -89,13 +92,51 @@ function ProductDetailContent({
   );
 
   const [imageIndex, setImageIndex] = useState(0);
+  const [isHeroPaused, setIsHeroPaused] = useState(false);
   const [saved, setSaved] = useState(false);
   const moq = data.moqCases ?? 1;
-  const presets = data.quickCasePresets ?? [1, 5, 10];
+  const allPresets = data.quickCasePresets ?? [1, 5, 10];
+
+  // Stock cap: the buyer can never add more than the total quantity currently
+  // available across all inventory batches for this product.
+  const totalAvailableQty = data.totalAvailableQty ?? 0;
+  const hasStockSignal = data.totalAvailableQty !== undefined;
+  const isOutOfStock = hasStockSignal
+    ? totalAvailableQty <= 0
+    : data.inStock === false;
+  // When stock metadata isn't surfaced (e.g. legacy mock products) fall back
+  // to the historical 999 cap so we don't gate purchase unnecessarily.
+  const stockCap = hasStockSignal ? totalAvailableQty : 999;
+  // Even with stock available the product may be unorderable if its MOQ is
+  // above what we have on hand.
+  const moqExceedsStock = stockCap > 0 && moq > stockCap;
+  const isPurchasable = !isOutOfStock && !moqExceedsStock;
+
+  const presets = useMemo(() => {
+    const upperBound = isPurchasable ? stockCap : 0;
+    return allPresets.filter((value) => value >= moq && value <= upperBound);
+  }, [allPresets, moq, stockCap, isPurchasable]);
   const [cases, setCases] = useState(() => initialCaseCount(data));
-  const selectedCases = cartLine
-    ? Math.max(moq, Math.min(999, Math.floor(cartLine.quantity)))
-    : cases;
+
+  // Keep the local case count in sync when stock or MOQ changes (e.g. the
+  // catalog refetches after another buyer purchased some units).
+  useEffect(() => {
+    if (!isPurchasable) {
+      setCases(0);
+      return;
+    }
+    setCases((current) =>
+      Math.max(moq, Math.min(stockCap, current || moq)),
+    );
+  }, [stockCap, moq, isPurchasable]);
+
+  const selectedCases = isPurchasable
+    ? cartLine
+      ? Math.max(moq, Math.min(stockCap, Math.floor(cartLine.quantity)))
+      : Math.max(moq, Math.min(stockCap, cases || moq))
+    : 0;
+  const atMaxStock = isPurchasable && selectedCases >= stockCap;
+  const atMinMoq = isPurchasable && selectedCases <= moq;
 
   const related = useMemo(() => {
     if (!data.relatedProductIds?.length || !catalog) return [];
@@ -105,6 +146,38 @@ function ProductDetailContent({
 
   const gallery = productGalleryUrls(data);
   const hero = gallery[imageIndex] ?? data.imageUrl;
+  const galleryLength = gallery.length;
+  const activeHeroIndex = galleryLength > 0 ? imageIndex % galleryLength : 0;
+
+  // Cross-fade auto-rotate. Re-running whenever `imageIndex` changes resets
+  // the timer naturally on manual thumbnail clicks, keeping the spacing
+  // between images consistent across desktop, tablet, and mobile.
+  useEffect(() => {
+    if (galleryLength <= 1) return;
+    if (isHeroPaused) return;
+    if (typeof window === "undefined") return;
+    const prefersReducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (prefersReducedMotion) return;
+    const timer = window.setTimeout(() => {
+      setImageIndex((current) =>
+        galleryLength > 0 ? (current + 1) % galleryLength : 0,
+      );
+    }, HERO_AUTO_ROTATE_INTERVAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [galleryLength, imageIndex, isHeroPaused]);
+
+  // Pause the rotate while the tab is backgrounded so coming back doesn't
+  // immediately flash through every image.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    function onVisibilityChange() {
+      setIsHeroPaused(document.hidden);
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
   const tiers = productBulkTiersSorted(data);
   const activeIdx = activeTierIndex(data, selectedCases);
   const unitPrice = pricePerCaseCents(data, selectedCases);
@@ -124,10 +197,13 @@ function ProductDetailContent({
     activeIdx == null ? 0 : (tierSavingsPercents[activeIdx] ?? 0);
 
   function clampCases(n: number): number {
-    return Math.max(moq, Math.min(999, Math.floor(n)));
+    if (!isPurchasable) return 0;
+    const requested = Number.isFinite(n) ? Math.floor(n) : moq;
+    return Math.max(moq, Math.min(stockCap, requested));
   }
 
   function setSyncedCases(n: number) {
+    if (!isPurchasable) return;
     const next = clampCases(n);
     setCases(next);
     if (cartLine) {
@@ -137,6 +213,11 @@ function ProductDetailContent({
 
   function adjustCases(delta: number) {
     setSyncedCases(selectedCases + delta);
+  }
+
+  function handleAddToCart() {
+    if (!isPurchasable) return;
+    upsertProductLine(data, selectedCases, unitPrice);
   }
 
   async function shareProduct() {
@@ -175,13 +256,72 @@ function ProductDetailContent({
 
       <div className="flex flex-col gap-0 pt-2">
         <section className="-mx-4 overflow-hidden border-b border-default/60 bg-card sm:mx-0 sm:rounded-b-xl sm:border sm:border-t-0">
-          <div className="relative flex h-[280px] items-center justify-center bg-input-bg p-6">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={hero}
-              alt={`${data.title} product image`}
-              className="max-h-full max-w-full object-contain"
-            />
+          <div
+            className="relative h-[280px] overflow-hidden bg-input-bg"
+            onMouseEnter={() => setIsHeroPaused(true)}
+            onMouseLeave={() => setIsHeroPaused(false)}
+            onTouchStart={() => setIsHeroPaused(true)}
+            onTouchEnd={() => setIsHeroPaused(false)}
+            onTouchCancel={() => setIsHeroPaused(false)}
+            aria-roledescription="carousel"
+            aria-label={`${data.title} product images`}
+          >
+            {galleryLength > 0 ? (
+              gallery.map((src, i) => {
+                const isActive = i === activeHeroIndex;
+                return (
+                  <div
+                    key={`${src}-${i}`}
+                    aria-hidden={!isActive}
+                    className={cn(
+                      "absolute inset-0 flex items-center justify-center p-6",
+                      "transition-[opacity,transform] duration-700 ease-in-out motion-reduce:transition-none",
+                      isActive
+                        ? "opacity-100 scale-100"
+                        : "pointer-events-none opacity-0 scale-[0.97]",
+                    )}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt={
+                        isActive
+                          ? `${data.title} product image ${i + 1}`
+                          : ""
+                      }
+                      draggable={false}
+                      className="max-h-full max-w-full select-none object-contain"
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center p-6">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={hero}
+                  alt={`${data.title} product image`}
+                  draggable={false}
+                  className="max-h-full max-w-full select-none object-contain"
+                />
+              </div>
+            )}
+            {galleryLength > 1 ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-2 flex items-center justify-center gap-1.5">
+                {gallery.map((src, i) => (
+                  <span
+                    key={`dot-${src}-${i}`}
+                    aria-hidden
+                    className={cn(
+                      "h-1.5 rounded-full bg-default/40 transition-[width,background-color] duration-500 ease-in-out motion-reduce:transition-none",
+                      i === activeHeroIndex
+                        ? "w-5 bg-primary"
+                        : "w-1.5",
+                    )}
+                  />
+                ))}
+              </div>
+            ) : null}
             {data.badges && data.badges.length > 0 ? (
               <div className="absolute left-4 top-4 flex flex-col gap-2">
                 {data.badges.map((b) => (
@@ -218,18 +358,22 @@ function ProductDetailContent({
                   key={`${src}-${i}`}
                   type="button"
                   onClick={() => setImageIndex(i)}
+                  aria-current={i === activeHeroIndex ? "true" : undefined}
+                  aria-label={`Show image ${i + 1} of ${gallery.length}`}
                   className={cn(
-                    "flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-input-bg p-1 transition-opacity",
-                    i === imageIndex
-                      ? "border-primary ring-2 ring-primary/20"
-                      : "border-default opacity-80 hover:opacity-100",
+                    "flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-input-bg p-1",
+                    "transition-[opacity,transform,border-color,box-shadow] duration-500 ease-in-out motion-reduce:transition-none",
+                    i === activeHeroIndex
+                      ? "scale-105 border-primary opacity-100 ring-2 ring-primary/20"
+                      : "scale-100 border-default opacity-70 hover:opacity-100",
                   )}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={src}
                     alt={`${data.title} product image ${i + 1}`}
-                    className="h-full w-full object-contain"
+                    draggable={false}
+                    className="h-full w-full select-none object-contain"
                   />
                 </button>
               ))}
@@ -261,15 +405,26 @@ function ProductDetailContent({
             {data.rating != null && data.inStock != null ? (
               <span className="hidden h-1 w-1 rounded-full bg-default sm:inline" />
             ) : null}
-            {data.inStock !== false ? (
-              <div className="flex items-center gap-1 text-xs font-semibold text-primary">
-                <IconCheckCircle />
-                In stock
-              </div>
-            ) : (
-              <span className="text-xs font-semibold text-muted">
+            {isOutOfStock ? (
+              <span className="text-xs font-semibold text-red-600">
                 Out of stock
               </span>
+            ) : (
+              <div
+                className={cn(
+                  "flex items-center gap-1 text-xs font-semibold",
+                  hasStockSignal && stockCap <= 5
+                    ? "text-amber-700"
+                    : "text-primary",
+                )}
+              >
+                <IconCheckCircle />
+                {hasStockSignal
+                  ? stockCap <= 5
+                    ? `Only ${stockCap} left`
+                    : `In stock · ${stockCap} available`
+                  : "In stock"}
+              </div>
             )}
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -294,6 +449,12 @@ function ProductDetailContent({
             <div className="inline-flex w-fit rounded-full border border-primary/20 bg-primary-light px-2.5 py-1 text-[11px] font-bold text-primary">
               Special price for you
             </div>
+          ) : null}
+          {data.hasMultipleBatches ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900">
+              Price may vary based on available inventory batches. Larger
+              quantities may pull from multiple batches at different prices.
+            </p>
           ) : null}
           {data.packSizeNote ? (
             <p className="text-xs text-muted">{data.packSizeNote}</p>
@@ -436,15 +597,17 @@ function ProductDetailContent({
                 </label>
                 <span className="text-xs font-medium text-muted">
                   MOQ: {moq} {unitLabel}
+                  {hasStockSignal ? ` · Max: ${stockCap}` : ""}
                 </span>
               </div>
               <div className="mb-4 flex gap-3">
                 <div className="flex flex-1 items-center justify-between rounded-lg border border-default bg-card p-1 shadow-sm">
                   <button
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted hover:bg-secondary-bg hover:text-heading"
+                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted transition-opacity hover:bg-secondary-bg hover:text-heading disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
                     onClick={() => adjustCases(-1)}
                     aria-label="Decrease quantity"
+                    disabled={!isPurchasable || atMinMoq}
                   >
                     <IconMinus />
                   </button>
@@ -452,37 +615,49 @@ function ProductDetailContent({
                     id="case-qty"
                     type="number"
                     min={moq}
-                    max={999}
+                    max={stockCap}
                     value={selectedCases}
                     onChange={(e) =>
                       setSyncedCases(Number(e.target.value) || moq)
                     }
-                    className="w-16 border-0 bg-transparent text-center text-lg font-bold text-heading outline-none"
+                    disabled={!isPurchasable}
+                    className="w-16 border-0 bg-transparent text-center text-lg font-bold text-heading outline-none disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <button
                     type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-md bg-secondary-bg text-heading hover:bg-default/60"
+                    className="flex h-10 w-10 items-center justify-center rounded-md bg-secondary-bg text-heading transition-opacity hover:bg-default/60 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-secondary-bg"
                     onClick={() => adjustCases(1)}
                     aria-label="Increase quantity"
+                    disabled={!isPurchasable || atMaxStock}
                   >
                     <IconPlus />
                   </button>
                 </div>
               </div>
-              <div className="mb-4 flex gap-2">
-                {presets.map((p) => (
-                  <Chip
-                    key={p}
-                    type="button"
-                    active={selectedCases === p}
-                    className="flex-1 rounded-lg py-2 text-xs font-semibold"
-                    onClick={() => setSyncedCases(p)}
-                  >
-                    {p} {unitLabel}
-                    {p > 1 ? "s" : ""}
-                  </Chip>
-                ))}
-              </div>
+              {isPurchasable && atMaxStock ? (
+                <p className="-mt-2 mb-3 text-[11px] font-semibold text-amber-700">
+                  You&apos;ve reached the maximum available stock ({stockCap}{" "}
+                  {unitLabel}
+                  {stockCap === 1 ? "" : "s"}).
+                </p>
+              ) : null}
+              {presets.length > 0 ? (
+                <div className="mb-4 flex gap-2">
+                  {presets.map((p) => (
+                    <Chip
+                      key={p}
+                      type="button"
+                      active={selectedCases === p}
+                      className="flex-1 rounded-lg py-2 text-xs font-semibold"
+                      onClick={() => setSyncedCases(p)}
+                      disabled={!isPurchasable}
+                    >
+                      {p} {unitLabel}
+                      {p > 1 ? "s" : ""}
+                    </Chip>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex items-center justify-between border-t border-default/60 pt-3 text-sm">
                 <span className="font-medium text-muted">Subtotal</span>
                 <span className="text-xl font-bold text-heading">
@@ -493,13 +668,15 @@ function ProductDetailContent({
                 type="button"
                 className="mt-4 gap-2"
                 fullWidth
-                onClick={() =>
-                  upsertProductLine(data, selectedCases, unitPrice)
-                }
+                onClick={handleAddToCart}
+                disabled={!isPurchasable}
               >
                 <IconCartPlus className="h-4 w-4" />
-                {cartLine ? "Update" : "Add"} {selectedCases} {unitLabel}
-                {selectedCases === 1 ? "" : "s"} to cart
+                {isOutOfStock
+                  ? "Out of stock"
+                  : moqExceedsStock
+                    ? `Only ${stockCap} ${unitLabel}${stockCap === 1 ? "" : "s"} available (MOQ ${moq})`
+                    : `${cartLine ? "Update" : "Add"} ${selectedCases} ${unitLabel}${selectedCases === 1 ? "" : "s"} to cart`}
               </Button>
             </div>
           </section>
@@ -512,9 +689,13 @@ function ProductDetailContent({
               type="button"
               className="mt-4"
               fullWidth
-              onClick={() => addProduct(data, 1)}
+              disabled={!isPurchasable}
+              onClick={() => {
+                if (!isPurchasable) return;
+                addProduct(data, 1);
+              }}
             >
-              Add to cart
+              {isOutOfStock ? "Out of stock" : "Add to cart"}
             </Button>
           </section>
         )}

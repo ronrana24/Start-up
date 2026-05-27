@@ -76,13 +76,16 @@ export function AdminUserPricingScreen() {
 
   const previewPrice = useMemo(() => {
     if (!selectedProduct) return null;
-    const base = Number(selectedProduct.basePrice);
+    // SPECIAL pricing now applies on top of the active batch's selling price,
+    // since product-level basePrice no longer exists.
+    const activeSellingPrice = Number(selectedProduct.activeSellingPrice ?? 0);
     const value = Number(discountValue);
-    if (!Number.isFinite(base) || !Number.isFinite(value)) return null;
+    if (!Number.isFinite(activeSellingPrice) || !Number.isFinite(value))
+      return null;
     if (discountType === "PERCENT_OFF") {
-      return Math.max(0, base * (1 - value / 100));
+      return Math.max(0, activeSellingPrice * (1 - value / 100));
     }
-    return Math.max(0, base - value);
+    return Math.max(0, activeSellingPrice - value);
   }, [selectedProduct, discountType, discountValue]);
 
   async function saveRule(e: React.FormEvent) {
@@ -220,7 +223,10 @@ export function AdminUserPricingScreen() {
                     {product.name}
                   </p>
                   <p className="text-xs text-catalog-text-muted">
-                    {product.category} / {formatInr(product.basePrice)}
+                    {product.category}
+                    {product.activeSellingPrice
+                      ? ` / ${formatInr(product.activeSellingPrice)}`
+                      : ""}
                   </p>
                 </button>
               );
@@ -257,7 +263,11 @@ export function AdminUserPricingScreen() {
                 {previewPrice == null ? "a calculated special price" : formatInr(previewPrice)}
               </strong>
               <span className="text-catalog-text-muted"> instead of </span>
-              <span className="line-through">{formatInr(selectedProduct.basePrice)}</span>
+              <span className="line-through">
+                {selectedProduct.activeSellingPrice
+                  ? formatInr(selectedProduct.activeSellingPrice)
+                  : "the active batch price"}
+              </span>
             </div>
           ) : null}
 

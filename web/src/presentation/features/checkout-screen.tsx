@@ -2,6 +2,7 @@
 
 import type { UserAddress } from "@application/ports/user-profile-gateway";
 import { cartTotalCents } from "@domain/cart";
+import { DomainError } from "@domain/errors";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Button } from "@presentation/components/ui/button";
 import { Card } from "@presentation/components/ui/card";
@@ -10,8 +11,10 @@ import { usePlaceOrderMutation } from "@presentation/hooks/use-place-order-mutat
 import { cn } from "@presentation/lib/cn";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
 import { formatMoney } from "@presentation/lib/format-money";
+import { queryKeys } from "@presentation/query-keys";
 import { useAuthStore } from "@presentation/state/auth-store";
 import { useCartStore } from "@presentation/state/cart-store";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -219,6 +222,40 @@ function LockIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Inline spinner used during the place-order request so the buyer sees the
+ * checkout is in flight instead of a frozen button. CSS-only animation
+ * (motion-reduce safe) so it stays smooth across mobile/tablet/desktop.
+ */
+function SpinnerIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn(
+        "h-4 w-4 animate-spin motion-reduce:animate-none",
+        className,
+      )}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.25"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 1-9 9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function CheckoutProgress({
   step,
   mode,
@@ -294,9 +331,13 @@ export function CheckoutScreen() {
   const lines = useCartStore((s) => s.lines);
   const clearCart = useCartStore((s) => s.clear);
   const mutation = usePlaceOrderMutation(userId ?? undefined);
+  const queryClient = useQueryClient();
 
   const [step, setStep] = useState<CheckoutStep>(1);
   const [error, setError] = useState<string | null>(null);
+  /** True when the last failure was a stock conflict, so we render an extra
+   *  "Refresh products" hint and (already) auto-refetched the catalog. */
+  const [conflictDetected, setConflictDetected] = useState(false);
   const [addresses, setAddresses] = useState<UserAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(
     null,
@@ -447,6 +488,7 @@ export function CheckoutScreen() {
     e.preventDefault();
     if (!termsAccepted) return;
     setError(null);
+    setConflictDetected(false);
     if (!uid) {
       setError("Sign in is required to place an order.");
       return;
@@ -479,6 +521,24 @@ export function CheckoutScreen() {
       clearCart();
       router.push(`/orders/${order.id}/confirmation`);
     } catch (err) {
+      // CONFLICT means another buyer drained a batch between our quote and
+      // our place. We surface a friendly message AND refetch the product
+      // catalogue so the cart/catalog "out of stock" chips update.
+      if (err instanceof DomainError && err.code === "CONFLICT") {
+        setConflictDetected(true);
+        setError(
+          err.message ||
+            "Stock changed while you were checking out. Please review your cart and try again.",
+        );
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.products(uid),
+        });
+        // Walk users back to the cart review step so they see the refreshed
+        // stock state before re-attempting checkout.
+        setStep(1);
+        setTermsAccepted(false);
+        return;
+      }
       setError(domainErrorMessage(err, "Checkout failed"));
     }
   }
@@ -1035,23 +1095,51 @@ export function CheckoutScreen() {
           </span>
         </div>
         {error ? (
-          <p
-            className="mb-3 text-center text-sm text-red-600 dark:text-red-400"
-            role="alert"
-          >
-            {error}
-          </p>
+          conflictDetected ? (
+            <div
+              role="alert"
+              className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-left text-xs leading-relaxed text-amber-900"
+            >
+              <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold">
+                !
+              </span>
+              <div>
+                <p className="font-bold">Stock changed during checkout</p>
+                <p>{error}</p>
+                <p className="mt-1 text-[11px] text-amber-800">
+                  We refreshed the latest stock. Update your cart and try
+                  again.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p
+              className="mb-3 text-center text-sm text-red-600 dark:text-red-400"
+              role="alert"
+            >
+              {error}
+            </p>
+          )
         ) : null}
         {step === 1 ? (
           <Button
             type="button"
             fullWidth
-            disabled={checkoutAddressesLoading}
+            disabled={checkoutAddressesLoading || mutation.isPending}
             className="inline-flex min-h-12 items-center justify-center gap-2 rounded-[10px] text-sm font-bold shadow-md"
             onClick={goReview}
           >
-            Review order
-            <ChevronRightIcon />
+            {mutation.isPending ? (
+              <>
+                <SpinnerIcon className="h-4 w-4" />
+                <span>Confirming your order…</span>
+              </>
+            ) : (
+              <>
+                Review order
+                <ChevronRightIcon />
+              </>
+            )}
           </Button>
         ) : (
           <form onSubmit={placeOrderSubmit}>
@@ -1065,7 +1153,10 @@ export function CheckoutScreen() {
               )}
             >
               {mutation.isPending ? (
-                "Starting UPI checkout…"
+                <>
+                  <SpinnerIcon className="h-4 w-4" />
+                  <span aria-live="polite">Confirming your order…</span>
+                </>
               ) : termsAccepted ? (
                 <>
                   <CheckIcon className="h-4 w-4" />

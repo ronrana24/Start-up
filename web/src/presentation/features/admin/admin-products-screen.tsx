@@ -9,6 +9,7 @@ import type { AdminProduct } from "./admin-api";
 import { deleteAdminProduct, listAdminProducts } from "./admin-api";
 import { formatDateTime, formatInr } from "./admin-format";
 import { useAdminQuery } from "./use-admin-query";
+import { ProductCategory } from "../../../../public/constants/product-category";
 
 const allCategories = "ALL";
 
@@ -104,15 +105,17 @@ function ProductCard({
               Available
             </p>
             <p className="mt-1 text-lg font-black text-catalog-text">
-              {formatCount(product.inventory?.availableQty ?? 0)}
+              {formatCount(product.totalAvailableQty ?? 0)}
             </p>
           </div>
           <div className="rounded-lg border border-catalog-border bg-catalog-surface p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-catalog-text-muted">
-              Cost price
+              Active selling price
             </p>
             <p className="mt-1 text-lg font-black text-catalog-text">
-              {formatInr(product.basePrice)}
+              {product.activeSellingPrice
+                ? formatInr(product.activeSellingPrice)
+                : "—"}
             </p>
           </div>
         </div>
@@ -235,7 +238,7 @@ export function AdminProductsScreen() {
                 )}
                 onClick={() => setCategory(option)}
               >
-                {label}
+                {label === 'All' ? "All" : ProductCategory[label as keyof typeof ProductCategory]}
               </button>
             );
           })}

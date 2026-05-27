@@ -22,11 +22,22 @@ export type TrackingStep = {
   completedAt?: string;
 };
 
+export type OrderLineBatchSegment = {
+  batchId: string;
+  batchNumber: number;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+};
+
 export type OrderLine = {
   productId: string;
   title: string;
   quantity: number;
   unitPriceCents: number;
+  /** Batch-level split for this line, if the backend split it across batches. */
+  batchSegments?: OrderLineBatchSegment[];
+  hasMixedBatches?: boolean;
 };
 
 export type OrderRider = {

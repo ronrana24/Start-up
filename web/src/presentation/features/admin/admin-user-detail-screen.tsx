@@ -747,8 +747,10 @@ export function AdminUserDetailScreen() {
                           {rule.product.name}
                         </p>
                         <p className="text-xs text-catalog-text-muted">
-                          {rule.product.category} / base{" "}
-                          {formatInr(rule.product.basePrice)}
+                          {rule.product.category}
+                          {rule.product.activeSellingPrice != null
+                            ? ` / active ${formatInr(rule.product.activeSellingPrice)}`
+                            : ""}
                         </p>
                       </div>
                       <StatusBadge

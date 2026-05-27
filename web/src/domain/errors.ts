@@ -4,6 +4,7 @@ export type DomainErrorCode =
   | "INVALID_INPUT"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
+  | "CONFLICT"
   | "NETWORK";
 
 export class DomainError extends Error {

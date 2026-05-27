@@ -7,7 +7,7 @@ export type ProductBadge = {
   tone?: ProductBadgeTone;
 };
 
-export type PricingSource = "BASE" | "BULK" | "SPECIAL";
+export type PricingSource = "BATCH" | "SPECIAL";
 
 export type ProductSpecialPricing = {
   label: string;
@@ -27,6 +27,15 @@ export type BulkTier = {
 export type LogisticsSpec = {
   label: string;
   value: string;
+};
+
+export type InventoryBatchSummary = {
+  batchId: string;
+  batchNumber: number;
+  sellingPriceCents: number;
+  remainingQty: number;
+  /** Bulk tiers attached to this specific batch. */
+  bulkTiers?: BulkTier[];
 };
 
 export type Product = {
@@ -56,4 +65,9 @@ export type Product = {
   moqCases?: number;
   quickCasePresets?: number[];
   relatedProductIds?: ProductId[];
+  /** Live batch state for FIFO mixed-price preview. */
+  activeBatchSellingPriceCents?: number | null;
+  hasMultipleBatches?: boolean;
+  totalAvailableQty?: number;
+  batches?: InventoryBatchSummary[];
 };

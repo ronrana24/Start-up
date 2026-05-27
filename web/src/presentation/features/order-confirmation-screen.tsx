@@ -307,30 +307,61 @@ export function OrderConfirmationScreen() {
               {itemCount} {itemCount === 1 ? "item" : "items"}
             </span>
           </div>
+          {data.lines.some((l) => l.hasMixedBatches) ? (
+            <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900">
+              This order includes items from multiple inventory batches with
+              different pricing.
+            </p>
+          ) : null}
           <ul className="flex flex-col gap-0">
-            {data.lines.map((line, i) => (
-              <li
-                key={`${data.id}-${line.productId}-${i}`}
-                className="flex items-center justify-between gap-3 border-b border-default/40 py-3 last:border-b-0"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="shrink-0 rounded-md border border-default bg-secondary-bg px-2 py-1 text-xs font-bold text-heading">
-                    {line.quantity}×
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-heading">
-                      {line.title}
-                    </p>
-                    <p className="mt-0.5 text-[10px] text-muted">
-                      SKU: {line.productId}
-                    </p>
+            {data.lines.map((line, i) => {
+              const segments = line.batchSegments ?? [];
+              const lineTotalCents =
+                segments.length > 0
+                  ? segments.reduce((sum, seg) => sum + seg.lineTotalCents, 0)
+                  : line.unitPriceCents * line.quantity;
+              return (
+                <li
+                  key={`${data.id}-${line.productId}-${i}`}
+                  className="flex flex-col gap-2 border-b border-default/40 py-3 last:border-b-0"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="shrink-0 rounded-md border border-default bg-secondary-bg px-2 py-1 text-xs font-bold text-heading">
+                        {line.quantity}×
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-heading">
+                          {line.title}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted">
+                          SKU: {line.productId}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-heading">
+                      {formatMoney(lineTotalCents)}
+                    </span>
                   </div>
-                </div>
-                <span className="shrink-0 text-xs font-semibold text-heading">
-                  {formatMoney(line.unitPriceCents * line.quantity)}
-                </span>
-              </li>
-            ))}
+                  {segments.length > 1 ? (
+                    <ul className="ml-8 space-y-0.5 text-[10px] text-muted">
+                      {segments.map((seg) => (
+                        <li
+                          key={seg.batchId}
+                          className="flex items-center justify-between"
+                        >
+                          <span>
+                            {seg.quantity} × {formatMoney(seg.unitPriceCents)}{" "}
+                            (Batch #{seg.batchNumber})
+                          </span>
+                          <span>{formatMoney(seg.lineTotalCents)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
           <div className="mt-4 flex items-center justify-between border-t border-default pt-3">
             <span className="text-sm font-bold text-heading">Paid online</span>

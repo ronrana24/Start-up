@@ -1,5 +1,6 @@
 import {
   PrismaClient,
+  ProductCategory,
   ProductUnit,
   RiderStatus,
   UserRole,
@@ -9,9 +10,10 @@ import { Prisma } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  await prisma.orderItemBatchAllocation.deleteMany();
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
-  await prisma.inventory.deleteMany();
+  await prisma.inventoryBatch.deleteMany();
   await prisma.product.deleteMany();
   await prisma.address.deleteMany();
   await prisma.otpChallenge.deleteMany();
@@ -51,50 +53,61 @@ async function main() {
 
   const productsData: Array<{
     name: string;
-    category: string;
+    category: ProductCategory;
     unit: ProductUnit;
-    basePrice: number;
-    tiers: { minQty: number; price: number }[];
+    costPrice: number;
+    sellingPrice: number;
+    tiers: { minimumQuantity: number; pricePerUnit: number }[];
     stock: number;
   }> = [
     {
       name: 'Disposable plates 10" (100 pack)',
-      category: 'plates',
+      category: ProductCategory.TABLEWARE,
       unit: ProductUnit.PACK,
-      basePrice: 450,
+      costPrice: 380,
+      sellingPrice: 450,
       tiers: [
-        { minQty: 5, price: 420 },
-        { minQty: 20, price: 390 },
+        { minimumQuantity: 1, pricePerUnit: 450 },
+        { minimumQuantity: 5, pricePerUnit: 420 },
+        { minimumQuantity: 20, pricePerUnit: 390 },
       ],
       stock: 500,
     },
     {
       name: 'Paper cups 200ml (100 pack)',
-      category: 'cups',
+      category: ProductCategory.TABLEWARE,
       unit: ProductUnit.PACK,
-      basePrice: 180,
+      costPrice: 150,
+      sellingPrice: 180,
       tiers: [
-        { minQty: 10, price: 165 },
-        { minQty: 40, price: 150 },
+        { minimumQuantity: 1, pricePerUnit: 180 },
+        { minimumQuantity: 10, pricePerUnit: 165 },
+        { minimumQuantity: 40, pricePerUnit: 150 },
       ],
       stock: 800,
     },
     {
       name: 'Tissue boxes (6 pack)',
-      category: 'tissues',
+      category: ProductCategory.TISSUE_AND_HYGIENE,
       unit: ProductUnit.PACK,
-      basePrice: 320,
-      tiers: [{ minQty: 8, price: 295 }],
+      costPrice: 270,
+      sellingPrice: 320,
+      tiers: [
+        { minimumQuantity: 1, pricePerUnit: 320 },
+        { minimumQuantity: 8, pricePerUnit: 295 },
+      ],
       stock: 400,
     },
     {
       name: 'Corrugated boxes 12x10x8 (bundle of 25)',
-      category: 'packaging',
+      category: ProductCategory.PACKAGING_AND_CARRY_BAGS,
       unit: ProductUnit.PACK,
-      basePrice: 980,
+      costPrice: 820,
+      sellingPrice: 980,
       tiers: [
-        { minQty: 4, price: 920 },
-        { minQty: 12, price: 860 },
+        { minimumQuantity: 1, pricePerUnit: 980 },
+        { minimumQuantity: 4, pricePerUnit: 920 },
+        { minimumQuantity: 12, pricePerUnit: 860 },
       ],
       stock: 120,
     },
@@ -106,15 +119,16 @@ async function main() {
         name: p.name,
         category: p.category,
         unit: p.unit,
-        basePrice: new Prisma.Decimal(p.basePrice),
-        bulkPricingTiers: p.tiers,
       },
     });
-    await prisma.inventory.create({
+    await prisma.inventoryBatch.create({
       data: {
         productId: product.id,
-        availableQty: p.stock,
-        reservedQty: 0,
+        batchNumber: 1,
+        costPrice: new Prisma.Decimal(p.costPrice),
+        sellingPrice: new Prisma.Decimal(p.sellingPrice),
+        quantity: p.stock,
+        bulkTiers: p.tiers as unknown as Prisma.InputJsonValue,
       },
     });
   }

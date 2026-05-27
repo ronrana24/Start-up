@@ -16,8 +16,21 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { InputHTMLAttributes } from "react";
 import { ProductCategory } from "../../../../public/constants/product-category";
-import type { CreateAdminProductInput, ProductUnit } from "./admin-api";
+import type {
+  CreateAdminProductInput,
+  ProductCategoryEnum,
+  ProductUnit,
+} from "./admin-api";
 import { createAdminProduct, uploadAdminProductImages } from "./admin-api";
+import {
+  blockNonIntegerKeys,
+  digitsOnly,
+  sanitizeIntegerPaste,
+} from "./admin-input";
+
+const productCategoryEntries = Object.entries(ProductCategory) as Array<
+  [ProductCategoryEnum, string]
+>;
 
 type Tier = { minQty: string; price: string };
 type ProductImageInput = { id: string; file: File; previewUrl: string };
@@ -31,7 +44,6 @@ type PriceInputProps = Omit<
 
 const minProductImages = 4;
 const maxProductImages = 10;
-const productCategoryOptions = Object.values(ProductCategory);
 
 function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -314,11 +326,13 @@ function BuyerProductPreviewModal({
 export function AdminProductNewScreen() {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState<ProductCategoryEnum | "">("");
   const [unit, setUnit] = useState<ProductUnit>("PACK");
   const [piecesPerPack, setPiecesPerPack] = useState("");
   const [isPublic, setIsPublic] = useState(false);
-  const [basePrice, setBasePrice] = useState("");
+  // Initial inventory batch (batchNumber = 1) created with the product.
+  const [costPrice, setCostPrice] = useState("");
+  const [sellingPrice, setSellingPrice] = useState("");
   const [initialAvailableQty, setInitialAvailableQty] = useState("");
   const [tiers, setTiers] = useState<Tier[]>([{ minQty: "", price: "" }]);
   const [images, setImages] = useState<ProductImageInput[]>([]);
@@ -434,60 +448,217 @@ export function AdminProductNewScreen() {
     });
   }
 
-  function payload(imageUrls: string[]): CreateAdminProductInput | null {
-    const parsedBase = Number(basePrice);
-    const parsedStock = Number(initialAvailableQty);
+  /**
+   * Validate the form once, in field order, and return either the validated
+   * primitives or a precise user-facing error message. Splitting validation
+   * from payload assembly lets `onSubmit` surface the exact reason a submit
+   * was rejected (instead of a generic "fix the fields" toast).
+   */
+  function validateForm():
+    | {
+        ok: true;
+        values: {
+          name: string;
+          category: ProductCategoryEnum;
+          unit: ProductUnit;
+          piecesPerPack?: number;
+          costPrice: number;
+          sellingPrice: number;
+          quantity: number;
+          bulkTiers: Array<{ minimumQuantity: number; pricePerUnit: number }>;
+        };
+      }
+    | { ok: false; error: string } {
+    if (!name.trim()) {
+      return { ok: false, error: "Please enter a product name." };
+    }
+    if (!category) {
+      return { ok: false, error: "Please select a product category." };
+    }
+
     const parsedPiecesPerPack = Number(piecesPerPack);
-    if (!name.trim()) return null;
-    if (!category.trim()) return null;
-    if (!Number.isFinite(parsedBase) || parsedBase < 0) return null;
-    if (!Number.isFinite(parsedStock) || parsedStock < 0) return null;
-    if (
-      unit === "PACK" &&
-      (!Number.isInteger(parsedPiecesPerPack) || parsedPiecesPerPack < 1)
-    ) {
-      return null;
+    let piecesPerPackValue: number | undefined;
+    if (unit === "PACK") {
+      if (
+        !piecesPerPack.trim() ||
+        !Number.isInteger(parsedPiecesPerPack) ||
+        parsedPiecesPerPack < 1
+      ) {
+        return {
+          ok: false,
+          error:
+            'Pieces per pack must be a whole number of 1 or more when the unit is "PACK".',
+        };
+      }
+      piecesPerPackValue = parsedPiecesPerPack;
     }
-    const parsedTiers = tiers
-      .filter((tier) => tier.minQty.trim() || tier.price.trim())
-      .map((tier) => ({
-        minQty: Number(tier.minQty),
-        price: Number(tier.price),
-      }));
-    if (
-      parsedTiers.some(
-        (tier) =>
-          !Number.isInteger(tier.minQty) ||
-          tier.minQty < 1 ||
-          !Number.isFinite(tier.price) ||
-          tier.price < 0,
-      )
-    ) {
-      return null;
+
+    if (!costPrice.trim()) {
+      return {
+        ok: false,
+        error: "Please enter the cost price for the initial batch.",
+      };
     }
+    const parsedCost = Number(costPrice);
+    if (!Number.isFinite(parsedCost) || parsedCost < 0) {
+      return {
+        ok: false,
+        error: "Cost price must be a number greater than or equal to 0.",
+      };
+    }
+
+    if (!sellingPrice.trim()) {
+      return {
+        ok: false,
+        error: "Please enter the selling price for the initial batch.",
+      };
+    }
+    const parsedSelling = Number(sellingPrice);
+    if (!Number.isFinite(parsedSelling) || parsedSelling < 0) {
+      return {
+        ok: false,
+        error: "Selling price must be a number greater than or equal to 0.",
+      };
+    }
+
+    if (!initialAvailableQty.trim()) {
+      return {
+        ok: false,
+        error: "Please enter the initial batch quantity.",
+      };
+    }
+    const parsedStock = Number(initialAvailableQty);
+    if (!Number.isInteger(parsedStock) || parsedStock < 1) {
+      return {
+        ok: false,
+        error: "Initial batch quantity must be a whole number of 1 or more.",
+      };
+    }
+
+    const filledTiers = tiers.filter(
+      (tier) => tier.minQty.trim() || tier.price.trim(),
+    );
+    if (filledTiers.length < 1) {
+      return {
+        ok: false,
+        error:
+          "Add at least 1 bulk pricing tier for the initial batch — every batch needs at least one tier.",
+      };
+    }
+    if (filledTiers.length > 3) {
+      return {
+        ok: false,
+        error: "A batch can have at most 3 bulk pricing tiers.",
+      };
+    }
+
+    const parsedTiers: Array<{
+      minimumQuantity: number;
+      pricePerUnit: number;
+    }> = [];
+    const seenMinQty = new Set<number>();
+    for (let i = 0; i < filledTiers.length; i++) {
+      const tier = filledTiers[i]!;
+      const tierLabel = `Tier ${i + 1}`;
+      if (!tier.minQty.trim()) {
+        return {
+          ok: false,
+          error: `${tierLabel}: enter a minimum quantity.`,
+        };
+      }
+      const minimumQuantity = Number(tier.minQty);
+      if (!Number.isInteger(minimumQuantity) || minimumQuantity < 1) {
+        return {
+          ok: false,
+          error: `${tierLabel}: minimum quantity must be a whole number of 1 or more.`,
+        };
+      }
+      if (minimumQuantity > parsedStock) {
+        return {
+          ok: false,
+          error: `${tierLabel}: minimum quantity (${minimumQuantity}) cannot exceed the initial batch quantity (${parsedStock}).`,
+        };
+      }
+      if (seenMinQty.has(minimumQuantity)) {
+        return {
+          ok: false,
+          error: `${tierLabel}: another tier already uses minimum quantity ${minimumQuantity}. Use distinct values.`,
+        };
+      }
+      seenMinQty.add(minimumQuantity);
+
+      if (!tier.price.trim()) {
+        return {
+          ok: false,
+          error: `${tierLabel}: enter a price per unit.`,
+        };
+      }
+      const pricePerUnit = Number(tier.price);
+      if (!Number.isFinite(pricePerUnit) || pricePerUnit < 0) {
+        return {
+          ok: false,
+          error: `${tierLabel}: price per unit must be a number greater than or equal to 0.`,
+        };
+      }
+      parsedTiers.push({ minimumQuantity, pricePerUnit });
+    }
+
     return {
-      name: name.trim(),
-      category: category.trim(),
-      unit,
-      ...(unit === "PACK" ? { piecesPerPack: parsedPiecesPerPack } : {}),
+      ok: true,
+      values: {
+        name: name.trim(),
+        category,
+        unit,
+        ...(piecesPerPackValue !== undefined
+          ? { piecesPerPack: piecesPerPackValue }
+          : {}),
+        costPrice: parsedCost,
+        sellingPrice: parsedSelling,
+        quantity: Math.floor(parsedStock),
+        bulkTiers: parsedTiers,
+      },
+    };
+  }
+
+  function buildPayload(
+    values: Extract<ReturnType<typeof validateForm>, { ok: true }>["values"],
+    imageUrls: string[],
+  ): CreateAdminProductInput {
+    return {
+      name: values.name,
+      category: values.category,
+      unit: values.unit,
+      ...(values.piecesPerPack !== undefined
+        ? { piecesPerPack: values.piecesPerPack }
+        : {}),
       isPublic,
-      basePrice: parsedBase,
       imageUrls,
-      initialAvailableQty: Math.floor(parsedStock),
-      bulkPricingTiers: parsedTiers,
+      initialBatch: {
+        costPrice: values.costPrice,
+        sellingPrice: values.sellingPrice,
+        quantity: values.quantity,
+        bulkTiers: values.bulkTiers,
+      },
     };
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!payload([])) {
-      setError(
-        "Please complete product fields with valid prices, stock, and pack details.",
-      );
+    const validation = validateForm();
+    if (!validation.ok) {
+      setError(validation.error);
       return;
     }
     if (images.length < minProductImages) {
-      setError(`Add at least ${minProductImages} product images.`);
+      setError(
+        `Add at least ${minProductImages} product images (you have ${images.length}).`,
+      );
+      return;
+    }
+    if (images.length > maxProductImages) {
+      setError(
+        `You can upload at most ${maxProductImages} product images (you have ${images.length}).`,
+      );
       return;
     }
     setIsSaving(true);
@@ -496,13 +667,13 @@ export function AdminProductNewScreen() {
       const imageUrls = await uploadAdminProductImages(
         images.map((image) => image.file),
       );
-      const input = payload(imageUrls);
-      if (!input) {
+      if (imageUrls.length !== images.length) {
         setError(
-          "Please complete product fields with valid prices, stock, and pack details.",
+          "Some images failed to upload. Remove the failed ones or try again.",
         );
         return;
       }
+      const input = buildPayload(validation.values, imageUrls);
       await createAdminProduct(input);
       router.push("/admin/products");
     } catch (err) {
@@ -549,13 +720,15 @@ export function AdminProductNewScreen() {
           <Select
             label="Category"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) =>
+              setCategory(e.target.value as ProductCategoryEnum | "")
+            }
             required
           >
             <option value="">Select category</option>
-            {productCategoryOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            {productCategoryEntries.map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
               </option>
             ))}
           </Select>
@@ -572,10 +745,16 @@ export function AdminProductNewScreen() {
               <Input
                 label="Pieces in one pack"
                 type="number"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 min={1}
                 step={1}
                 value={piecesPerPack}
-                onChange={(e) => setPiecesPerPack(e.target.value)}
+                onKeyDown={blockNonIntegerKeys}
+                onPaste={(event) =>
+                  sanitizeIntegerPaste(event, setPiecesPerPack)
+                }
+                onChange={(e) => setPiecesPerPack(digitsOnly(e.target.value))}
                 required
               />
               <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
@@ -603,31 +782,54 @@ export function AdminProductNewScreen() {
           </label>
           <div className="space-y-1">
             <PriceInput
-              label="Cost Price"
+              label="Cost price (initial batch)"
               min={0}
               step="0.01"
-              value={basePrice}
-              onChange={(e) => setBasePrice(e.target.value)}
+              value={costPrice}
+              onChange={(e) => setCostPrice(e.target.value)}
               required
             />
             <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
-              The cost price of the product is {basePrice} per{" "}
-              {availableUnitLabel}.
+              What you paid per {availableUnitLabel} for this batch.
             </p>
           </div>
 
           <div className="space-y-1">
-            <Input
-              label="Available Quantity"
-              type="number"
+            <PriceInput
+              label="Selling price (initial batch)"
               min={0}
-              step={1}
-              value={initialAvailableQty}
-              onChange={(e) => setInitialAvailableQty(e.target.value)}
+              step="0.01"
+              value={sellingPrice}
+              onChange={(e) => setSellingPrice(e.target.value)}
               required
             />
             <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
-              You have {availableQuantityLabel} {availableUnitLabel} available.
+              <b>{name.trim()}</b> will be sold at <b>{sellingPrice}</b> per-{availableUnitLabel} price for buyers when no bulk
+              tier applies.
+            </p>
+          </div>
+
+          <div className="space-y-1 sm:col-span-2">
+            <Input
+              label="Initial batch quantity"
+              type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              min={1}
+              step={1}
+              value={initialAvailableQty}
+              onKeyDown={blockNonIntegerKeys}
+              onPaste={(event) =>
+                sanitizeIntegerPaste(event, setInitialAvailableQty)
+              }
+              onChange={(e) =>
+                setInitialAvailableQty(digitsOnly(e.target.value))
+              }
+              required
+            />
+            <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
+              You will start with {availableQuantityLabel} {availableUnitLabel}.
+              This becomes batch #1 — every later restock creates a new batch.
             </p>
           </div>
         </div>
@@ -791,13 +993,20 @@ export function AdminProductNewScreen() {
 
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-bold text-catalog-text">
-              Bulk pricing tiers
-            </h2>
+            <div>
+              <h2 className="text-sm font-bold text-catalog-text">
+                Bulk pricing tiers (initial batch)
+              </h2>
+              <p className="text-xs text-catalog-text-muted">
+                Required: 1–3 tiers. Each tier&apos;s minimum quantity must not
+                exceed the batch&apos;s available quantity.
+              </p>
+            </div>
             <button
               type="button"
-              className="text-xs font-bold text-catalog-green hover:underline"
+              className="text-xs font-bold text-catalog-green hover:underline disabled:cursor-not-allowed disabled:text-catalog-text-muted"
               onClick={addTier}
+              disabled={tiers.length >= 3}
             >
               Add tier
             </button>
@@ -822,11 +1031,19 @@ export function AdminProductNewScreen() {
                 <Input
                   label="Minimum quantity"
                   type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   min={1}
                   step={1}
                   value={tier.minQty}
+                  onKeyDown={blockNonIntegerKeys}
+                  onPaste={(event) =>
+                    sanitizeIntegerPaste(event, (value) =>
+                      updateTier(index, { minQty: value }),
+                    )
+                  }
                   onChange={(e) =>
-                    updateTier(index, { minQty: e.target.value })
+                    updateTier(index, { minQty: digitsOnly(e.target.value) })
                   }
                 />
                 <PriceInput
@@ -871,10 +1088,16 @@ export function AdminProductNewScreen() {
       {previewOpen ? (
         <BuyerProductPreviewModal
           name={name}
-          category={category}
+          category={
+            category
+              ? (ProductCategory[
+                  category as keyof typeof ProductCategory
+                ] as string)
+              : ""
+          }
           unit={unit}
           piecesPerPack={piecesPerPack}
-          basePrice={basePrice}
+          basePrice={sellingPrice}
           initialAvailableQty={initialAvailableQty}
           tiers={tiers}
           images={images}

@@ -5,7 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, User, UserRole } from '@prisma/client';
+import { Prisma, ProductCategory, User, UserRole } from '@prisma/client';
+import { InventoryService } from '../inventory/inventory.service';
 import {
   createClient,
   SupabaseClient,
@@ -44,11 +45,8 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly pricingRules: PricingRulesService,
+    private readonly inventory: InventoryService,
   ) {}
-
-  private warehouseId(): string {
-    return this.config.get<string>('warehouse.defaultId') ?? 'default';
-  }
 
   private normalizeImageUrls(imageUrls: string[] | undefined) {
     const seen = new Set<string>();
@@ -186,6 +184,12 @@ export class ProductsService {
     return { uploads };
   }
 
+  private readonly productBatchInclude = {
+    batches: {
+      orderBy: [{ batchNumber: 'asc' as const }],
+    },
+  } satisfies Prisma.ProductInclude;
+
   async list(query: QueryProductsDto, user?: User) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
@@ -194,7 +198,7 @@ export class ProductsService {
       where.isPublic = true;
     }
     if (query.category) {
-      where.category = query.category;
+      where.category = query.category as ProductCategory;
     }
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
@@ -205,7 +209,7 @@ export class ProductsService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { name: 'asc' },
-        include: { inventory: true },
+        include: this.productBatchInclude,
       }),
       this.prisma.product.count({ where }),
     ]);
@@ -220,7 +224,7 @@ export class ProductsService {
   async getById(id: string, user?: User, publicOnly = false) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { inventory: true },
+      include: this.productBatchInclude,
     });
     if (
       !product ||
@@ -234,11 +238,21 @@ export class ProductsService {
     return decorated;
   }
 
-  create(dto: CreateProductDto) {
-    return this.prisma.$transaction(async (tx) => {
-      const imageUrls = this.normalizeImageUrls(dto.imageUrls);
-      this.assertProductImageCount(imageUrls);
+  /**
+   * Create a new product and its first inventory batch (batchNumber 1).
+   * Pricing / stock now lives entirely on InventoryBatch so the initial
+   * batch is what makes the product purchasable.
+   */
+  async create(dto: CreateProductDto) {
+    const imageUrls = this.normalizeImageUrls(dto.imageUrls);
+    this.assertProductImageCount(imageUrls);
 
+    const initialBatchTiers = this.inventory.validateTiersForQuantity(
+      dto.initialBatch.bulkTiers,
+      dto.initialBatch.quantity,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: {
           name: dto.name,
@@ -247,32 +261,28 @@ export class ProductsService {
           piecesPerPack:
             dto.unit === 'PACK' ? (dto.piecesPerPack ?? null) : null,
           isPublic: dto.isPublic ?? false,
-          basePrice: new Prisma.Decimal(dto.basePrice),
           imageUrls,
-          bulkPricingTiers:
-            dto.bulkPricingTiers as unknown as Prisma.InputJsonValue,
         },
       });
-      await tx.inventory.create({
+      await tx.inventoryBatch.create({
         data: {
           productId: product.id,
-          warehouseId: this.warehouseId(),
-          availableQty: dto.initialAvailableQty ?? 0,
-          reservedQty: 0,
+          batchNumber: 1,
+          costPrice: new Prisma.Decimal(dto.initialBatch.costPrice),
+          sellingPrice: new Prisma.Decimal(dto.initialBatch.sellingPrice),
+          quantity: dto.initialBatch.quantity,
+          bulkTiers: initialBatchTiers as unknown as Prisma.InputJsonValue,
         },
       });
       return tx.product.findUnique({
         where: { id: product.id },
-        include: { inventory: true },
+        include: this.productBatchInclude,
       });
     });
   }
 
   async update(id: string, dto: UpdateProductDto) {
-    const existing = await this.prisma.product.findUnique({
-      where: { id },
-      include: { inventory: true },
-    });
+    const existing = await this.prisma.product.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Product not found');
     }
@@ -298,47 +308,19 @@ export class ProductsService {
       this.assertProductImageCount(imageUrls);
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const data: Prisma.ProductUpdateInput = {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.category !== undefined && { category: dto.category }),
-        ...(dto.unit !== undefined && { unit: dto.unit }),
-        piecesPerPack: nextPiecesPerPack,
-        ...(dto.isPublic !== undefined && { isPublic: dto.isPublic }),
-        ...(dto.basePrice !== undefined && {
-          basePrice: new Prisma.Decimal(dto.basePrice),
-        }),
-        ...(imageUrls !== undefined && { imageUrls }),
-        ...(dto.bulkPricingTiers !== undefined && {
-          bulkPricingTiers:
-            dto.bulkPricingTiers as unknown as Prisma.InputJsonValue,
-        }),
-      };
+    const data: Prisma.ProductUpdateInput = {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.category !== undefined && { category: dto.category }),
+      ...(dto.unit !== undefined && { unit: dto.unit }),
+      piecesPerPack: nextPiecesPerPack,
+      ...(dto.isPublic !== undefined && { isPublic: dto.isPublic }),
+      ...(imageUrls !== undefined && { imageUrls }),
+    };
 
-      await tx.product.update({
-        where: { id },
-        data,
-      });
-
-      if (dto.initialAvailableQty !== undefined) {
-        await tx.inventory.upsert({
-          where: { productId: id },
-          create: {
-            productId: id,
-            warehouseId: this.warehouseId(),
-            availableQty: dto.initialAvailableQty,
-            reservedQty: 0,
-          },
-          update: {
-            availableQty: dto.initialAvailableQty,
-          },
-        });
-      }
-
-      return tx.product.findUnique({
-        where: { id },
-        include: { inventory: true },
-      });
+    await this.prisma.product.update({ where: { id }, data });
+    return this.prisma.product.findUnique({
+      where: { id },
+      include: this.productBatchInclude,
     });
   }
 

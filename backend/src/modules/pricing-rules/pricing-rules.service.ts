@@ -14,8 +14,11 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpsertPricingRuleDto } from './dto/upsert-pricing-rule.dto';
 
-export type BulkTier = { minQty: number; price: number };
-export type PricingSource = 'BASE' | 'BULK' | 'SPECIAL';
+export type PricingSource = 'BATCH' | 'SPECIAL';
+export type BatchTierSnapshot = {
+  minimumQuantity: number;
+  pricePerUnit: number;
+};
 
 type PricingRule = {
   id: string;
@@ -24,21 +27,42 @@ type PricingRule = {
   isActive: boolean;
 };
 
-type ProductWithPricingFields = Product & {
-  inventory?: unknown;
+type BatchPricingSnapshot = {
+  id: string;
+  batchNumber: number;
+  sellingPrice: Prisma.Decimal;
+  quantity: number;
+  bulkTiers: unknown;
+  createdAt: Date;
 };
 
-export type ResolvedLinePrice = {
-  productId: string;
-  quantity: number;
-  unitPrice: Prisma.Decimal;
-  lineTotal: Prisma.Decimal;
-  source: PricingSource;
-  pricingSnapshot: Prisma.InputJsonValue;
+type ProductWithBatches = Product & {
+  batches?: BatchPricingSnapshot[];
 };
 
 function decimalString(value: Prisma.Decimal): string {
   return value.toFixed(2);
+}
+
+function readBatchTiers(value: unknown): BatchTierSnapshot[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (tier): tier is { minimumQuantity: unknown; pricePerUnit: unknown } =>
+        !!tier && typeof tier === 'object',
+    )
+    .map((tier) => ({
+      minimumQuantity: Math.floor(Number(tier.minimumQuantity)),
+      pricePerUnit: Number(tier.pricePerUnit),
+    }))
+    .filter(
+      (tier) =>
+        Number.isInteger(tier.minimumQuantity) &&
+        tier.minimumQuantity > 0 &&
+        Number.isFinite(tier.pricePerUnit) &&
+        tier.pricePerUnit >= 0,
+    )
+    .sort((a, b) => a.minimumQuantity - b.minimumQuantity);
 }
 
 function ruleSnapshot(rule: {
@@ -55,6 +79,19 @@ function ruleSnapshot(rule: {
     isActive: rule.isActive,
     adminNote: rule.adminNote,
   };
+}
+
+function applySpecialDiscount(
+  unitPrice: Prisma.Decimal,
+  rule: PricingRule,
+): Prisma.Decimal {
+  if (rule.discountType === PricingDiscountType.PERCENT_OFF) {
+    return unitPrice.mul(
+      new Prisma.Decimal(100).minus(rule.discountValue).div(100),
+    );
+  }
+  const next = unitPrice.minus(rule.discountValue);
+  return next.lt(0) ? new Prisma.Decimal(0) : next;
 }
 
 @Injectable()
@@ -97,114 +134,7 @@ export class PricingRulesService {
       });
   }
 
-  private bulkUnitPrice(
-    product: Product,
-    quantity: number,
-  ): { unitPrice: Prisma.Decimal; source: PricingSource; tier?: BulkTier } {
-    const tiers = product.bulkPricingTiers as unknown;
-    if (!Array.isArray(tiers) || tiers.length === 0) {
-      return { unitPrice: product.basePrice, source: 'BASE' };
-    }
-    const sorted = [...(tiers as BulkTier[])].sort(
-      (a, b) => b.minQty - a.minQty,
-    );
-    for (const tier of sorted) {
-      if (quantity >= tier.minQty) {
-        return {
-          unitPrice: new Prisma.Decimal(tier.price),
-          source: 'BULK',
-          tier,
-        };
-      }
-    }
-    return { unitPrice: product.basePrice, source: 'BASE' };
-  }
-
-  private discountedUnitPrice(
-    product: Product,
-    rule: PricingRule,
-  ): Prisma.Decimal {
-    if (rule.discountType === PricingDiscountType.PERCENT_OFF) {
-      return product.basePrice.mul(
-        new Prisma.Decimal(100).minus(rule.discountValue).div(100),
-      );
-    }
-    return product.basePrice.minus(rule.discountValue);
-  }
-
-  private resolveUnitPrice(
-    product: Product,
-    quantity: number,
-    rule?: PricingRule,
-  ): {
-    unitPrice: Prisma.Decimal;
-    source: PricingSource;
-    pricingSnapshot: Prisma.InputJsonValue;
-  } {
-    if (rule?.isActive) {
-      const unitPrice = this.discountedUnitPrice(product, rule);
-      return {
-        unitPrice,
-        source: 'SPECIAL',
-        pricingSnapshot: {
-          source: 'SPECIAL',
-          label: 'Special price for you',
-          ruleId: rule.id,
-          discountType: rule.discountType,
-          discountValue: decimalString(rule.discountValue),
-          basePrice: decimalString(product.basePrice),
-          effectiveUnitPrice: decimalString(unitPrice),
-          bulkPricingIgnored: true,
-        },
-      };
-    }
-
-    const resolved = this.bulkUnitPrice(product, quantity);
-    return {
-      unitPrice: resolved.unitPrice,
-      source: resolved.source,
-      pricingSnapshot: {
-        source: resolved.source,
-        basePrice: decimalString(product.basePrice),
-        effectiveUnitPrice: decimalString(resolved.unitPrice),
-        ...(resolved.tier
-          ? {
-              tierMinQty: resolved.tier.minQty,
-              tierPrice: new Prisma.Decimal(resolved.tier.price).toFixed(2),
-            }
-          : {}),
-      },
-    };
-  }
-
-  async resolveOrderLines(
-    user: User,
-    lines: Array<{ product: Product; quantity: number }>,
-  ): Promise<ResolvedLinePrice[]> {
-    const rules = await this.activeRuleMap(
-      user,
-      lines.map((line) => line.product.id),
-    );
-
-    return lines.map(({ product, quantity }) => {
-      const resolved = this.resolveUnitPrice(
-        product,
-        quantity,
-        rules.get(product.id),
-      );
-      const lineTotal = resolved.unitPrice.mul(new Prisma.Decimal(quantity));
-      return {
-        productId: product.id,
-        quantity,
-        unitPrice: resolved.unitPrice,
-        lineTotal,
-        source: resolved.source,
-        pricingSnapshot: resolved.pricingSnapshot,
-      };
-    });
-  }
-
-  async decorateProductsForUser<T extends ProductWithPricingFields>(
+  async decorateProductsForUser<T extends ProductWithBatches>(
     user: User | null | undefined,
     products: T[],
   ) {
@@ -215,20 +145,47 @@ export class PricingRulesService {
 
     return products.map((product) => {
       const rule = rules.get(product.id);
-      const resolved = this.resolveUnitPrice(product, 1, rule);
+      const activeBatches = (product.batches ?? []).filter(
+        (batch) => batch.quantity > 0,
+      );
+      const activeBatch = activeBatches[0] ?? null;
+      const totalAvailableQty = activeBatches.reduce(
+        (n, b) => n + b.quantity,
+        0,
+      );
+      const activeSellingPrice = activeBatch?.sellingPrice ?? null;
+      const displayPrice =
+        rule && activeSellingPrice
+          ? applySpecialDiscount(activeSellingPrice, rule)
+          : (activeSellingPrice ?? new Prisma.Decimal(0));
+      const pricingSource: PricingSource = rule ? 'SPECIAL' : 'BATCH';
       return {
         ...product,
-        effectivePrice: resolved.unitPrice,
-        pricingSource: resolved.source,
-        specialPricing: rule
-          ? {
-              label: 'Special price for you',
-              discountType: rule.discountType,
-              discountValue: decimalString(rule.discountValue),
-              originalPrice: decimalString(product.basePrice),
-              effectivePrice: decimalString(resolved.unitPrice),
-            }
+        effectivePrice: displayPrice,
+        pricingSource,
+        activeSellingPrice: activeSellingPrice
+          ? decimalString(activeSellingPrice)
           : null,
+        hasMultipleBatches: activeBatches.length > 1,
+        totalAvailableQty,
+        batches: activeBatches.map((batch) => ({
+          batchId: batch.id,
+          batchNumber: batch.batchNumber,
+          sellingPrice: decimalString(batch.sellingPrice),
+          quantity: batch.quantity,
+          bulkTiers: readBatchTiers(batch.bulkTiers),
+          createdAt: batch.createdAt.toISOString(),
+        })),
+        specialPricing:
+          rule && activeSellingPrice
+            ? {
+                label: 'Special price for you',
+                discountType: rule.discountType,
+                discountValue: decimalString(rule.discountValue),
+                originalPrice: decimalString(activeSellingPrice),
+                effectivePrice: decimalString(displayPrice),
+              }
+            : null,
       };
     });
   }
@@ -247,8 +204,13 @@ export class PricingRulesService {
     return { buyer, product };
   }
 
+  /**
+   * Validate the raw discount value. The old per-product `basePrice` floor is
+   * gone — we now reject negative/zero PERCENT_OFF and out-of-range values.
+   * AMOUNT_OFF beneath the live batch price is enforced at order time
+   * (by clamping the final unit price to 0).
+   */
   private validateDiscount(
-    product: Product,
     discountType: PricingDiscountType,
     rawValue: number,
   ): Prisma.Decimal {
@@ -263,11 +225,9 @@ export class PricingRulesService {
     }
     if (
       discountType === PricingDiscountType.AMOUNT_OFF &&
-      product.basePrice.minus(discountValue).lte(0)
+      discountValue.lte(0)
     ) {
-      throw new BadRequestException(
-        'Amount discount must keep price above zero',
-      );
+      throw new BadRequestException('Amount discount must be greater than 0');
     }
     return discountValue;
   }
@@ -281,7 +241,7 @@ export class PricingRulesService {
       where: { userId },
       orderBy: { updatedAt: 'desc' },
       include: {
-        product: { include: { inventory: true } },
+        product: { include: { batches: true } },
         updatedByAdmin: {
           select: { id: true, email: true, name: true, businessName: true },
         },
@@ -295,9 +255,8 @@ export class PricingRulesService {
     dto: UpsertPricingRuleDto,
     admin: User,
   ) {
-    const { product } = await this.assertBuyerAndProduct(userId, productId);
+    await this.assertBuyerAndProduct(userId, productId);
     const discountValue = this.validateDiscount(
-      product,
       dto.discountType,
       dto.discountValue,
     );
@@ -347,7 +306,7 @@ export class PricingRulesService {
 
       return tx.userProductPricingRule.findUnique({
         where: { id: rule.id },
-        include: { product: { include: { inventory: true } } },
+        include: { product: { include: { batches: true } } },
       });
     });
   }

@@ -1,17 +1,19 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
   Max,
   Min,
 } from 'class-validator';
+import { ProductCategory } from '@prisma/client';
 
 export class QueryProductsDto {
   @IsOptional()
-  @IsString()
-  category?: string;
+  @IsEnum(ProductCategory)
+  category?: ProductCategory;
 
   @IsOptional()
   @IsString()

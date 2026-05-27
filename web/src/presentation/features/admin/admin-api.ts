@@ -126,24 +126,41 @@ export type AdminAddress = {
   isDefault: boolean;
 };
 
+export type AdminBulkTier = {
+  minimumQuantity: number;
+  pricePerUnit: number;
+};
+
 export type AdminProduct = {
   id: string;
   name: string;
-  category: string;
+  category: ProductCategoryEnum;
   unit: ProductUnit;
   piecesPerPack?: number | null;
   isPublic: boolean;
-  basePrice: string | number;
   imageUrls?: string[];
-  bulkPricingTiers: Array<{ minQty: number; price: number }>;
   createdAt: string;
   updatedAt: string;
-  inventory?: {
-    availableQty: number;
-    reservedQty: number;
-    warehouseId: string;
-  } | null;
+  activeSellingPrice?: string | null;
+  hasMultipleBatches?: boolean;
+  totalAvailableQty?: number;
+  batches?: Array<{
+    batchId: string;
+    batchNumber: number;
+    sellingPrice: string;
+    quantity: number;
+    bulkTiers?: AdminBulkTier[];
+    createdAt: string;
+  }>;
 };
+
+export type ProductCategoryEnum =
+  | "TISSUE_AND_HYGIENE"
+  | "PARTY_AND_CELEBRATION"
+  | "CLEANING_AND_FRAGRANCE"
+  | "FOOD_ITEMS_AND_CONDIMENTS"
+  | "TABLEWARE"
+  | "PACKAGING_AND_CARRY_BAGS";
 
 export type AdminOrder = {
   id: string;
@@ -304,7 +321,9 @@ export type AdminUserProfile = {
       adminNote: string | null;
       createdAt: string;
       updatedAt: string;
-      product: Pick<AdminProduct, "id" | "name" | "category" | "basePrice">;
+      product: Pick<AdminProduct, "id" | "name" | "category"> & {
+        activeSellingPrice: number | null;
+      };
       updatedByAdmin: {
         id: string;
         email: string | null;
@@ -474,17 +493,91 @@ export type AdminProductAnalytics = {
 
 export type CreateAdminProductInput = {
   name: string;
-  category: string;
+  category: ProductCategoryEnum;
   unit: ProductUnit;
   piecesPerPack?: number;
   isPublic: boolean;
-  basePrice: number;
   imageUrls: string[];
-  initialAvailableQty: number;
-  bulkPricingTiers: Array<{ minQty: number; price: number }>;
+  initialBatch: {
+    costPrice: number;
+    sellingPrice: number;
+    quantity: number;
+    bulkTiers: AdminBulkTier[];
+  };
 };
 
-export type UpdateAdminProductInput = CreateAdminProductInput;
+export type UpdateAdminProductInput = {
+  name?: string;
+  category?: ProductCategoryEnum;
+  unit?: ProductUnit;
+  piecesPerPack?: number;
+  isPublic?: boolean;
+  imageUrls?: string[];
+};
+
+export type AdminInventoryBatch = {
+  id: string;
+  productId: string;
+  batchNumber: number;
+  costPrice: string | number;
+  sellingPrice: string | number;
+  quantity: number;
+  bulkTiers: AdminBulkTier[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateInventoryBatchInput = {
+  costPrice: number;
+  sellingPrice: number;
+  quantity: number;
+  bulkTiers: AdminBulkTier[];
+};
+
+export type UpdateInventoryBatchInput = {
+  costPrice?: number;
+  sellingPrice?: number;
+  quantity?: number;
+  bulkTiers?: AdminBulkTier[];
+};
+
+export async function listProductBatches(
+  productId: string,
+): Promise<AdminInventoryBatch[]> {
+  return unwrapBody(
+    await apiJsonAuthorized<
+      AdminInventoryBatch[] | ApiEnvelope<AdminInventoryBatch[]>
+    >(apiBaseUrl(), `/api/inventory/${productId}/batches`, { method: "GET" }),
+  );
+}
+
+export async function createProductBatch(
+  productId: string,
+  input: CreateInventoryBatchInput,
+): Promise<AdminInventoryBatch> {
+  return unwrapBody(
+    await apiJsonAuthorized<
+      AdminInventoryBatch | ApiEnvelope<AdminInventoryBatch>
+    >(apiBaseUrl(), `/api/inventory/${productId}/batches`, {
+      method: "POST",
+      body: input,
+    }),
+  );
+}
+
+export async function updateProductBatch(
+  batchId: string,
+  input: UpdateInventoryBatchInput,
+): Promise<AdminInventoryBatch> {
+  return unwrapBody(
+    await apiJsonAuthorized<
+      AdminInventoryBatch | ApiEnvelope<AdminInventoryBatch>
+    >(apiBaseUrl(), `/api/inventory/batches/${batchId}`, {
+      method: "PATCH",
+      body: input,
+    }),
+  );
+}
 
 export type AdminPricingRule = {
   id: string;

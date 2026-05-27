@@ -10,16 +10,27 @@ type ApiPaginated<T> = {
   pageSize: number;
 };
 
+type ApiBatch = {
+  batchId: string;
+  batchNumber: number;
+  sellingPrice: string | number;
+  quantity: number;
+  bulkTiers?: Array<{
+    minimumQuantity: number;
+    pricePerUnit: string | number;
+  }>;
+  createdAt: string;
+};
+
 export type ApiProduct = {
   id: string;
   name: string;
   category: string;
   unit: "PIECE" | "PACK";
   piecesPerPack?: number | null;
-  basePrice: string | number;
   imageUrls?: string[];
   effectivePrice?: string | number;
-  pricingSource?: "BASE" | "BULK" | "SPECIAL";
+  pricingSource?: "BATCH" | "SPECIAL";
   specialPricing?: {
     label: string;
     discountType: "PERCENT_OFF" | "AMOUNT_OFF";
@@ -27,8 +38,10 @@ export type ApiProduct = {
     originalPrice: string | number;
     effectivePrice: string | number;
   } | null;
-  bulkPricingTiers: Array<{ minQty: number; price: string | number }>;
-  inventory?: { availableQty: number } | null;
+  activeSellingPrice?: string | number | null;
+  hasMultipleBatches?: boolean;
+  totalAvailableQty?: number;
+  batches?: ApiBatch[];
   createdAt?: string;
   updatedAt?: string;
 };
@@ -44,30 +57,46 @@ function priceToCents(value: string | number | undefined): number {
   return Math.round(Number(value ?? 0) * 100);
 }
 
-function mapBulkTiers(product: ApiProduct): BulkTier[] {
-  return (product.bulkPricingTiers ?? []).map((tier) => ({
-    minCases: tier.minQty,
-    maxCases: null,
-    priceCents: priceToCents(tier.price),
-    savingsLabel: null,
-  }));
+/**
+ * Aggregate the union of every batch's bulk tiers as a default product-level
+ * preview. Each batch still owns its own tier list — this is just a convenience
+ * for legacy UI that wants a single tier table to display.
+ */
+function aggregateBulkTiers(product: ApiProduct): BulkTier[] {
+  const seen = new Map<number, BulkTier>();
+  for (const batch of product.batches ?? []) {
+    for (const tier of batch.bulkTiers ?? []) {
+      const cents = priceToCents(tier.pricePerUnit);
+      const existing = seen.get(tier.minimumQuantity);
+      if (!existing || existing.priceCents > cents) {
+        seen.set(tier.minimumQuantity, {
+          minCases: tier.minimumQuantity,
+          maxCases: null,
+          priceCents: cents,
+          savingsLabel: null,
+        });
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.minCases - b.minCases);
 }
 
 export function mapApiProduct(product: ApiProduct): Product {
-  const basePriceCents = priceToCents(product.basePrice);
-  const effectivePriceCents = priceToCents(
-    product.effectivePrice ?? product.basePrice,
-  );
+  const activeBatchPriceCents = priceToCents(product.activeSellingPrice ?? 0);
+  const effectivePriceCents = product.effectivePrice
+    ? priceToCents(product.effectivePrice)
+    : activeBatchPriceCents;
   const imageUrls = (product.imageUrls ?? []).filter(Boolean);
   const imageUrl = imageUrls[0] ?? "/placeholder-product.svg";
+  const totalAvailableQty = product.totalAvailableQty ?? 0;
   return {
     id: product.id,
     title: product.name,
     description: `${product.name} for wholesale disposable supply orders.`,
-    basePriceCents,
+    basePriceCents: activeBatchPriceCents || undefined,
     priceCents: effectivePriceCents,
     currency: "INR",
-    pricingSource: product.pricingSource ?? "BASE",
+    pricingSource: product.pricingSource ?? "BATCH",
     specialPricing: product.specialPricing
       ? {
           label: product.specialPricing.label,
@@ -85,7 +114,7 @@ export function mapApiProduct(product: ApiProduct): Product {
     galleryImageUrls: imageUrls.slice(1),
     brand: product.category,
     sku: product.id.slice(0, 8).toUpperCase(),
-    inStock: (product.inventory?.availableQty ?? 0) > 0,
+    inStock: totalAvailableQty > 0,
     unitLabel: product.unit.toLowerCase(),
     packSizeNote:
       product.unit === "PACK" && product.piecesPerPack
@@ -93,9 +122,27 @@ export function mapApiProduct(product: ApiProduct): Product {
         : product.unit === "PACK"
           ? "pack"
           : "piece",
-    bulkTiers: mapBulkTiers(product),
+    bulkTiers: aggregateBulkTiers(product),
     moqCases: 1,
     quickCasePresets: [1, 5, 10],
+    activeBatchSellingPriceCents:
+      product.activeSellingPrice == null
+        ? null
+        : priceToCents(product.activeSellingPrice),
+    hasMultipleBatches: product.hasMultipleBatches ?? false,
+    totalAvailableQty,
+    batches: (product.batches ?? []).map((batch) => ({
+      batchId: batch.batchId,
+      batchNumber: batch.batchNumber,
+      sellingPriceCents: priceToCents(batch.sellingPrice),
+      remainingQty: batch.quantity,
+      bulkTiers: (batch.bulkTiers ?? []).map((tier) => ({
+        minCases: tier.minimumQuantity,
+        maxCases: null,
+        priceCents: priceToCents(tier.pricePerUnit),
+        savingsLabel: null,
+      })),
+    })),
   };
 }
 

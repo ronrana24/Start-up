@@ -3,6 +3,7 @@
 import { cn } from "@presentation/lib/cn";
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { ProductCategory } from "../../../../public/constants/product-category";
 
 type CategoryPosition = "left" | "right";
 
@@ -88,7 +89,7 @@ export function ProductImageCarousel({
             categoryPosition === "right" ? "right-3" : "left-3",
           )}
         >
-          {categoryLabel}
+          {ProductCategory[categoryLabel as keyof typeof ProductCategory]}
         </span>
       ) : null}
 

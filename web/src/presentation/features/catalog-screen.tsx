@@ -192,18 +192,28 @@ export function CatalogScreen({
     ? `/orders/history#order-${latestOrder.id}`
     : "/orders/history";
 
+  function stockCapFor(p: Product): number {
+    // When totalAvailableQty isn't reported (legacy/mock data) we fall back
+    // to a high cap so we don't gate purchase unnecessarily.
+    return p.totalAvailableQty ?? 999;
+  }
+
   function adjustCart(p: Product, delta: number, e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     const cur = qtyFor(p.id);
     const moq = p.moqCases ?? 1;
+    const cap = stockCapFor(p);
+    if (cap <= 0) return;
     let next: number;
     if (delta < 0) {
       if (cur <= 0) return;
       next = cur - 1;
       if (next < moq) next = 0;
     } else {
-      next = cur === 0 ? moq : Math.min(999, cur + 1);
+      // Block increments past the live stock cap.
+      if (cur >= cap) return;
+      next = cur === 0 ? Math.min(cap, moq) : Math.min(cap, cur + 1);
     }
     if (next === 0) {
       setQuantity(p.id, 0);
@@ -218,14 +228,18 @@ export function CatalogScreen({
     const orderedQuantity = Math.max(1, Math.floor(item.line.quantity));
     const currentQuantity = qtyFor(item.product.id);
     const orderedPriceCents = orderedUnitPriceCents(item.product, item.line);
+    const cap = stockCapFor(item.product);
+    if (cap <= 0) return;
+    const nextQuantity = Math.min(cap, currentQuantity + orderedQuantity);
+    if (nextQuantity <= 0) return;
     upsertProductLine(
       {
         ...item.product,
         priceCents: orderedPriceCents,
-        pricingSource: "BASE",
+        pricingSource: "BATCH",
         specialPricing: null,
       },
-      Math.min(999, currentQuantity + orderedQuantity),
+      nextQuantity,
       orderedPriceCents,
     );
   }
@@ -463,7 +477,13 @@ function CatalogProductCard({
   onAdjust: (delta: number, e: React.MouseEvent) => void;
 }) {
   const router = useRouter();
-  const out = p.inStock === false;
+  // Live stock cap drives both the out-of-stock state and the `+` disabled
+  // state so the catalog stays in sync with the buyer's actual purchase limit.
+  const hasStockSignal = p.totalAvailableQty !== undefined;
+  const stockCap = hasStockSignal ? (p.totalAvailableQty ?? 0) : Infinity;
+  const out =
+    p.inStock === false || (hasStockSignal && (p.totalAvailableQty ?? 0) <= 0);
+  const atMaxStock = qty >= stockCap;
   const displayQty = qty > 0 ? qty : (p.moqCases ?? 1);
   const hint = tierHint(p, displayQty);
   const hasSpecialPrice = productHasSpecialPrice(p);
@@ -607,14 +627,27 @@ function CatalogProductCard({
                 qty > 0
                   ? "border-transparent bg-catalog-green text-white"
                   : "border-catalog-border/50 bg-white text-catalog-text",
+                "disabled:cursor-not-allowed disabled:opacity-40",
               )}
-              aria-label="Increase quantity"
+              aria-label={
+                atMaxStock
+                  ? hasStockSignal
+                    ? `No more stock available (max ${stockCap})`
+                    : "Increase quantity"
+                  : "Increase quantity"
+              }
+              disabled={atMaxStock}
               onClick={(e) => onAdjust(1, e)}
             >
               <PlusIcon className="h-2.5 w-2.5" />
             </button>
           </div>
         )}
+        {!out && hasStockSignal && atMaxStock ? (
+          <p className="text-[10px] font-semibold text-amber-700">
+            Max available stock reached ({stockCap}).
+          </p>
+        ) : null}
       </div>
     </article>
   );

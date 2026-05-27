@@ -359,7 +359,10 @@ export class AdminService {
               id: true,
               name: true,
               category: true,
-              basePrice: true,
+              batches: {
+                orderBy: { batchNumber: 'asc' },
+                select: { sellingPrice: true, quantity: true },
+              },
             },
           },
           updatedByAdmin: {
@@ -514,16 +517,24 @@ export class AdminService {
       pricing: {
         totalRules: pricingTotal,
         activeRules: pricingActive,
-        recentRules: recentPricingRules.map((rule) => ({
-          ...rule,
-          discountValue: decimalToNumber(rule.discountValue),
-          product: {
-            ...rule.product,
-            basePrice: decimalToNumber(rule.product.basePrice),
-          },
-          createdAt: rule.createdAt.toISOString(),
-          updatedAt: rule.updatedAt.toISOString(),
-        })),
+        recentRules: recentPricingRules.map((rule) => {
+          const product = rule.product;
+          const activeBatch = product.batches.find((b) => b.quantity > 0);
+          return {
+            ...rule,
+            discountValue: decimalToNumber(rule.discountValue),
+            product: {
+              id: product.id,
+              name: product.name,
+              category: product.category,
+              activeSellingPrice: activeBatch
+                ? decimalToNumber(activeBatch.sellingPrice)
+                : null,
+            },
+            createdAt: rule.createdAt.toISOString(),
+            updatedAt: rule.updatedAt.toISOString(),
+          };
+        }),
       },
       activity: {
         lastActiveAt,
@@ -580,11 +591,17 @@ export class AdminService {
           product: { select: { name: true, category: true } },
         },
       }),
-      this.prisma.inventory.findMany({
-        where: { availableQty: { lte: LOW_STOCK_THRESHOLD } },
-        orderBy: { availableQty: 'asc' },
-        take: 10,
-        include: { product: true },
+      // Low-stock surface: group remaining quantity per product across batches.
+      this.prisma.product.findMany({
+        where: {
+          batches: { some: { quantity: { gt: 0 } } },
+        },
+        select: {
+          id: true,
+          name: true,
+          category: true,
+          batches: { select: { quantity: true } },
+        },
       }),
       this.prisma.user.findMany({
         where: { role: UserRole.BUYER },
@@ -907,13 +924,23 @@ export class AdminService {
       topBuyers,
       topProducts,
       topCategories,
-      lowStock: lowStock.map((row) => ({
-        productId: row.productId,
-        name: row.product.name,
-        category: row.product.category,
-        availableQty: row.availableQty,
-        reservedQty: row.reservedQty,
-      })),
+      lowStock: lowStock
+        .map((product) => {
+          const availableQty = product.batches.reduce(
+            (n, b) => n + b.quantity,
+            0,
+          );
+          return {
+            productId: product.id,
+            name: product.name,
+            category: product.category,
+            availableQty,
+            reservedQty: 0,
+          };
+        })
+        .filter((row) => row.availableQty <= LOW_STOCK_THRESHOLD)
+        .sort((a, b) => a.availableQty - b.availableQty)
+        .slice(0, 10),
     };
   }
 

@@ -84,6 +84,15 @@ enum PricingRuleAuditAction {
   ENABLED
 }
 
+enum ProductCategory {
+  TISSUE_AND_HYGIENE
+  PARTY_AND_CELEBRATION
+  CLEANING_AND_FRAGRANCE
+  FOOD_ITEMS_AND_CONDIMENTS
+  TABLEWARE
+  PACKAGING_AND_CARRY_BAGS
+}
+
 model User {
   id                    String                    @id @default(cuid())
   phone                 String                    @unique
@@ -125,35 +134,66 @@ model Address {
   @@index([userId])
 }
 
+/// Catalog product. Pricing and stock live entirely on `InventoryBatch` —
+/// this model carries only describe-the-product fields.
 model Product {
-  id               String                   @id @default(cuid())
-  name             String
-  category         String
-  unit             ProductUnit
-  piecesPerPack    Int?
-  isPublic         Boolean                  @default(false)
-  basePrice        Decimal                  @db.Decimal(12, 2)
-  imageUrls        Json                     @default("[]")
-  bulkPricingTiers Json
-  inventory        Inventory?
-  orderItems       OrderItem[]
-  pricingRules     UserProductPricingRule[]
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
+  id            String                   @id @default(cuid())
+  name          String
+  category      ProductCategory
+  unit          ProductUnit
+  piecesPerPack Int?
+  isPublic      Boolean                  @default(false)
+  imageUrls     Json                     @default("[]")
+  batches       InventoryBatch[]
+  orderItems    OrderItem[]
+  pricingRules  UserProductPricingRule[]
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
 
   @@index([category])
 }
 
-model Inventory {
-  id           String  @id @default(cuid())
-  productId    String  @unique
-  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  warehouseId  String  @default("default")
-  availableQty Int
-  reservedQty  Int     @default(0)
-  version      Int     @default(0)
+/// An independent purchasable unit of inventory for a product. New stock is added
+/// as a new batch with its own `costPrice`, `sellingPrice`, and `bulkTiers`.
+/// Lower `batchNumber` batches are consumed first (FIFO).
+/// `bulkTiers` is a JSON array of `{ minimumQuantity, pricePerUnit }`:
+///   - At least 1, at most 3 tiers.
+///   - `minimumQuantity` must not exceed the batch's `quantity`.
+model InventoryBatch {
+  id           String                     @id @default(cuid())
+  productId    String
+  product      Product                    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batchNumber  Int
+  costPrice    Decimal                    @db.Decimal(12, 2)
+  sellingPrice Decimal                    @db.Decimal(12, 2)
+  quantity     Int
+  bulkTiers    Json
+  /// Optimistic-lock token. Every reserve / restore / admin update increments
+  /// this. Concurrent writers that snapshotted a stale row will fail their
+  /// predicate match and the order is retried inside the serializable tx.
+  version      Int                        @default(0)
+  allocations  OrderItemBatchAllocation[]
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
 
-  @@index([warehouseId])
+  @@unique([productId, batchNumber])
+  @@index([productId, batchNumber])
+}
+
+/// Records the FIFO allocation of an order item across one or more inventory batches.
+/// Allows the order summary to reconstruct the split pricing breakdown.
+model OrderItemBatchAllocation {
+  id          String         @id @default(cuid())
+  orderItemId String
+  orderItem   OrderItem      @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  batchId     String
+  batch       InventoryBatch @relation(fields: [batchId], references: [id])
+  quantity    Int
+  unitPrice   Decimal        @db.Decimal(12, 2)
+  createdAt   DateTime       @default(now())
+
+  @@index([orderItemId])
+  @@index([batchId])
 }
 
 model Order {
@@ -267,14 +307,15 @@ model RiderPaymentCollection {
 }
 
 model OrderItem {
-  id              String  @id @default(cuid())
-  orderId         String
-  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId       String
-  product         Product @relation(fields: [productId], references: [id])
-  quantity        Int
-  priceApplied    Decimal @db.Decimal(12, 2)
-  pricingSnapshot Json?
+  id                String                     @id @default(cuid())
+  orderId           String
+  order             Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product                    @relation(fields: [productId], references: [id])
+  quantity          Int
+  priceApplied      Decimal                    @db.Decimal(12, 2)
+  pricingSnapshot   Json?
+  batchAllocations  OrderItemBatchAllocation[]
 
   @@index([orderId])
   @@index([productId])

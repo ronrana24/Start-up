@@ -190,7 +190,11 @@ export class PaymentsService {
   ) {
     const transaction = await this.prisma.paymentTransaction.findUnique({
       where: { razorpayOrderId: input.razorpayOrderId },
-      include: { order: { include: { items: true } } },
+      include: {
+        order: {
+          include: { items: { include: { batchAllocations: true } } },
+        },
+      },
     });
     if (!transaction || transaction.status === PaymentStatus.PAID) {
       return transaction?.order ?? null;
@@ -213,10 +217,12 @@ export class PaymentsService {
         transaction.order.status !== OrderStatus.DELIVERED;
       if (shouldCancel) {
         for (const item of transaction.order.items) {
-          await this.inventory.releaseReservationInTransaction(
+          await this.inventory.restoreInTransaction(
             tx,
-            item.productId,
-            item.quantity,
+            item.batchAllocations.map((a) => ({
+              batchId: a.batchId,
+              quantity: a.quantity,
+            })),
           );
         }
       }

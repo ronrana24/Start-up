@@ -22,6 +22,12 @@ type ApiOrderItem = {
   quantity: number;
   priceApplied: string | number;
   product?: { name?: string | null } | null;
+  batchAllocations?: Array<{
+    batchId: string;
+    quantity: number;
+    unitPrice: string | number;
+    batch?: { batchNumber: number };
+  }>;
 };
 type ApiRider = {
   id: string;
@@ -177,11 +183,23 @@ function mapOrder(order: ApiOrder, input?: PlaceOrderInput): Order {
       const originalLine = input?.lines.find(
         (line) => line.productId === item.productId,
       );
+      const segments = (item.batchAllocations ?? []).map((allocation) => {
+        const unitPriceCents = priceToCents(allocation.unitPrice);
+        return {
+          batchId: allocation.batchId,
+          batchNumber: allocation.batch?.batchNumber ?? 0,
+          quantity: allocation.quantity,
+          unitPriceCents,
+          lineTotalCents: unitPriceCents * allocation.quantity,
+        };
+      });
       return {
         productId: item.productId,
         title: item.product?.name ?? originalLine?.title ?? item.productId,
         quantity: item.quantity,
         unitPriceCents: priceToCents(item.priceApplied),
+        batchSegments: segments.length > 0 ? segments : undefined,
+        hasMixedBatches: segments.length > 1,
       };
     }),
   };

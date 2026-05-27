@@ -24,16 +24,24 @@ import { ProductCategory } from "../../../../public/constants/product-category";
 import type {
   AdminAnalyticsRange,
   AdminProduct,
+  ProductCategoryEnum,
   ProductUnit,
   UpdateAdminProductInput,
 } from "./admin-api";
 import {
+  createProductBatch,
   getAdminProductAnalytics,
   getAdminProduct,
+  listProductBatches,
   updateAdminProduct,
   uploadAdminProductImages,
 } from "./admin-api";
 import { formatInr } from "./admin-format";
+import {
+  blockNonIntegerKeys,
+  digitsOnly,
+  sanitizeIntegerPaste,
+} from "./admin-input";
 import { useAdminQuery } from "./use-admin-query";
 
 type Tier = { minQty: string; price: string };
@@ -52,7 +60,9 @@ type PriceInputProps = Omit<
 
 const minProductImages = 4;
 const maxProductImages = 10;
-const productCategoryOptions = Object.values(ProductCategory);
+const productCategoryEntries = Object.entries(ProductCategory) as Array<
+  [ProductCategoryEnum, string]
+>;
 const rangeOptions: Array<{ value: AdminAnalyticsRange; label: string }> = [
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },
@@ -315,14 +325,6 @@ function imageFromFile(file: File): EditableImage {
   };
 }
 
-function formTiers(product: AdminProduct): Tier[] {
-  const tiers = product.bulkPricingTiers ?? [];
-  if (tiers.length === 0) return [{ minQty: "", price: "" }];
-  return tiers.map((tier) => ({
-    minQty: String(tier.minQty),
-    price: String(tier.price),
-  }));
-}
 
 export function AdminProductEditScreen() {
   const params = useParams<{ productId: string }>();
@@ -373,17 +375,12 @@ function AdminProductEditForm({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const previewUrlsRef = useRef<string[]>([]);
   const [name, setName] = useState(product.name);
-  const [category, setCategory] = useState(product.category);
+  const [category, setCategory] = useState<ProductCategoryEnum>(product.category);
   const [unit, setUnit] = useState<ProductUnit>(product.unit);
   const [piecesPerPack, setPiecesPerPack] = useState(
     product.piecesPerPack ? String(product.piecesPerPack) : "",
   );
   const [isPublic, setIsPublic] = useState(product.isPublic);
-  const [basePrice, setBasePrice] = useState(String(product.basePrice));
-  const [availableQty, setAvailableQty] = useState(
-    String(product.inventory?.availableQty ?? 0),
-  );
-  const [tiers, setTiers] = useState<Tier[]>(() => formTiers(product));
   const [images, setImages] = useState<EditableImage[]>(() =>
     (product.imageUrls ?? []).map(imageFromUrl),
   );
@@ -398,33 +395,6 @@ function AdminProductEditForm({
       }
     };
   }, []);
-
-  const categoryOptions = useMemo(() => {
-    if (
-      !category ||
-      productCategoryOptions.includes(category as ProductCategory)
-    ) {
-      return productCategoryOptions;
-    }
-    return [category, ...productCategoryOptions];
-  }, [category]);
-
-  function addTier() {
-    setTiers((current) => [...current, { minQty: "", price: "" }]);
-  }
-
-  function removeTier(index: number) {
-    setTiers((current) => {
-      if (current.length <= 1) return current;
-      return current.filter((_, i) => i !== index);
-    });
-  }
-
-  function updateTier(index: number, patch: Partial<Tier>) {
-    setTiers((current) =>
-      current.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)),
-    );
-  }
 
   function updateUnit(nextUnit: ProductUnit) {
     setUnit(nextUnit);
@@ -478,46 +448,22 @@ function AdminProductEditForm({
   }
 
   function payload(imageUrls: string[]): UpdateAdminProductInput | null {
-    const parsedBase = Number(basePrice);
-    const parsedAvailable = Number(availableQty);
     const parsedPiecesPerPack = Number(piecesPerPack);
     if (!name.trim()) return null;
-    if (!category.trim()) return null;
-    if (!Number.isFinite(parsedBase) || parsedBase < 0) return null;
-    if (!Number.isFinite(parsedAvailable) || parsedAvailable < 0) return null;
+    if (!category) return null;
     if (
       unit === "PACK" &&
       (!Number.isInteger(parsedPiecesPerPack) || parsedPiecesPerPack < 1)
     ) {
       return null;
     }
-    const parsedTiers = tiers
-      .filter((tier) => tier.minQty.trim() || tier.price.trim())
-      .map((tier) => ({
-        minQty: Number(tier.minQty),
-        price: Number(tier.price),
-      }));
-    if (
-      parsedTiers.some(
-        (tier) =>
-          !Number.isInteger(tier.minQty) ||
-          tier.minQty < 1 ||
-          !Number.isFinite(tier.price) ||
-          tier.price < 0,
-      )
-    ) {
-      return null;
-    }
     return {
       name: name.trim(),
-      category: category.trim(),
+      category,
       unit,
       ...(unit === "PACK" ? { piecesPerPack: parsedPiecesPerPack } : {}),
       isPublic,
-      basePrice: parsedBase,
       imageUrls,
-      initialAvailableQty: Math.floor(parsedAvailable),
-      bulkPricingTiers: parsedTiers,
     };
   }
 
@@ -539,7 +485,7 @@ function AdminProductEditForm({
     const draft = payload([]);
     if (!draft) {
       setFormError(
-        "Please complete product fields with valid prices, stock, and pack details.",
+        "Please complete product fields with a valid name, category, and pack details.",
       );
       return;
     }
@@ -554,7 +500,7 @@ function AdminProductEditForm({
       const input = payload(imageUrls);
       if (!input) {
         setFormError(
-          "Please complete product fields with valid prices, stock, and pack details.",
+          "Please complete product fields with a valid name, category, and pack details.",
         );
         return;
       }
@@ -596,17 +542,20 @@ function AdminProductEditForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
+            disabled={true}
           />
           <Select
             label="Category"
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) =>
+              setCategory(e.target.value as ProductCategoryEnum)
+            }
             required
+            disabled={true}
           >
-            <option value="">Select category</option>
-            {categoryOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            {productCategoryEntries.map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
               </option>
             ))}
           </Select>
@@ -614,6 +563,7 @@ function AdminProductEditForm({
             label="Unit"
             value={unit}
             onChange={(e) => updateUnit(e.target.value as ProductUnit)}
+            disabled={true}
           >
             <option value="PACK">PACK</option>
             <option value="PIECE">PIECE</option>
@@ -622,11 +572,18 @@ function AdminProductEditForm({
             <Input
               label="Pieces in one pack"
               type="number"
+              inputMode="numeric"
+              pattern="[0-9]*"
               min={1}
               step={1}
               value={piecesPerPack}
-              onChange={(e) => setPiecesPerPack(e.target.value)}
+              onKeyDown={blockNonIntegerKeys}
+              onPaste={(event) =>
+                sanitizeIntegerPaste(event, setPiecesPerPack)
+              }
+              onChange={(e) => setPiecesPerPack(digitsOnly(e.target.value))}
               required
+              disabled={true}
             />
           ) : null}
           <label className="flex min-h-11 items-start gap-3 rounded-lg border border-catalog-border bg-catalog-surface px-3 py-3 text-sm sm:col-span-2">
@@ -646,28 +603,11 @@ function AdminProductEditForm({
               </span>
             </span>
           </label>
-          <PriceInput
-            label="Cost Price"
-            min={0}
-            step="0.01"
-            value={basePrice}
-            onChange={(e) => setBasePrice(e.target.value)}
-            required
-          />
-          <div className="space-y-1">
-            <Input
-              label="Available Quantity"
-              type="number"
-              min={0}
-              step={1}
-              value={availableQty}
-              onChange={(e) => setAvailableQty(e.target.value)}
-              required
-            />
-            <p className="px-1 text-xs leading-relaxed text-catalog-text-muted">
-              You have {availableQty || "0"} {availableUnitLabel} available.
-            </p>
-          </div>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900 sm:col-span-2">
+            Pricing and stock are managed per inventory batch. Use the
+            &quot;Inventory batches&quot; section below to add new batches with
+            their own cost / selling price and bulk tiers.
+          </p>
         </div>
 
         <section className="space-y-3">
@@ -769,58 +709,6 @@ function AdminProductEditForm({
           )}
         </section>
 
-        <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-bold text-catalog-text">
-              Bulk pricing tiers
-            </h2>
-            <button
-              type="button"
-              className="text-xs font-bold text-catalog-green hover:underline"
-              onClick={addTier}
-            >
-              Add tier
-            </button>
-          </div>
-          {tiers.map((tier, index) => (
-            <div key={String(index)} className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-catalog-text-muted">
-                  Tier {index + 1}
-                </p>
-                {tiers.length > 1 ? (
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-red-600 hover:underline"
-                    onClick={() => removeTier(index)}
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Input
-                  label="Minimum quantity"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={tier.minQty}
-                  onChange={(e) =>
-                    updateTier(index, { minQty: e.target.value })
-                  }
-                />
-                <PriceInput
-                  label="Tier price"
-                  min={0}
-                  step="0.01"
-                  value={tier.price}
-                  onChange={(e) => updateTier(index, { price: e.target.value })}
-                />
-              </div>
-            </div>
-          ))}
-        </section>
-
         {formError ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {formError}
@@ -841,7 +729,319 @@ function AdminProductEditForm({
         </div>
       </form>
 
+      <InventoryBatchesPanel productId={productId} />
+
       <ProductAnalyticsPanel productId={productId} />
     </div>
+  );
+}
+
+function InventoryBatchesPanel({ productId }: { productId: string }) {
+  const { data, error, isLoading, refetch } = useAdminQuery(
+    ["admin", "product-batches", productId],
+    () => listProductBatches(productId),
+  );
+
+  const [costPrice, setCostPrice] = useState("");
+  const [sellingPrice, setSellingPrice] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [batchTiers, setBatchTiers] = useState<Tier[]>([
+    { minQty: "", price: "" },
+  ]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  function addBatchTier() {
+    setBatchTiers((current) => {
+      if (current.length >= 3) return current;
+      return [...current, { minQty: "", price: "" }];
+    });
+  }
+
+  function removeBatchTier(index: number) {
+    setBatchTiers((current) => {
+      if (current.length <= 1) return current;
+      return current.filter((_, i) => i !== index);
+    });
+  }
+
+  function updateBatchTier(index: number, patch: Partial<Tier>) {
+    setBatchTiers((current) =>
+      current.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)),
+    );
+  }
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const parsedCost = Number(costPrice);
+    const parsedSelling = Number(sellingPrice);
+    const parsedQty = Number(quantity);
+    if (!Number.isFinite(parsedCost) || parsedCost < 0) {
+      setFormError("Enter a valid cost price.");
+      return;
+    }
+    if (!Number.isFinite(parsedSelling) || parsedSelling < 0) {
+      setFormError("Enter a valid selling price.");
+      return;
+    }
+    if (!Number.isInteger(parsedQty) || parsedQty < 1) {
+      setFormError("Quantity must be a positive whole number.");
+      return;
+    }
+    const parsedTiers: Array<{
+      minimumQuantity: number;
+      pricePerUnit: number;
+    }> = [];
+    for (const tier of batchTiers) {
+      if (!tier.minQty.trim() && !tier.price.trim()) continue;
+      const minimumQuantity = Number(tier.minQty);
+      const pricePerUnit = Number(tier.price);
+      if (!Number.isInteger(minimumQuantity) || minimumQuantity < 1) {
+        setFormError("Tier minimum quantity must be a positive whole number.");
+        return;
+      }
+      if (minimumQuantity > parsedQty) {
+        setFormError(
+          "Tier minimum quantity cannot exceed the batch quantity.",
+        );
+        return;
+      }
+      if (!Number.isFinite(pricePerUnit) || pricePerUnit < 0) {
+        setFormError("Tier price must be a non-negative number.");
+        return;
+      }
+      parsedTiers.push({ minimumQuantity, pricePerUnit });
+    }
+    if (parsedTiers.length < 1) {
+      setFormError("Add at least 1 bulk tier for this batch.");
+      return;
+    }
+    if (parsedTiers.length > 3) {
+      setFormError("A batch can have at most 3 bulk tiers.");
+      return;
+    }
+    const seenMinQty = new Set<number>();
+    for (const tier of parsedTiers) {
+      if (seenMinQty.has(tier.minimumQuantity)) {
+        setFormError("Each bulk tier must use a distinct minimum quantity.");
+        return;
+      }
+      seenMinQty.add(tier.minimumQuantity);
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await createProductBatch(productId, {
+        costPrice: parsedCost,
+        sellingPrice: parsedSelling,
+        quantity: parsedQty,
+        bulkTiers: parsedTiers,
+      });
+      setCostPrice("");
+      setSellingPrice("");
+      setQuantity("");
+      setBatchTiers([{ minQty: "", price: "" }]);
+      await refetch();
+    } catch (err) {
+      setFormError(domainErrorMessage(err, "Could not create batch"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-xl border border-catalog-border bg-card p-4 shadow-sm sm:p-5">
+      <div>
+        <h2 className="text-xl font-bold text-catalog-text">
+          Inventory batches
+        </h2>
+        <p className="text-sm text-catalog-text-muted">
+          Each restock creates a new batch. Older batches are sold first (FIFO);
+          buyers always see the price of the oldest available batch.
+        </p>
+      </div>
+
+      <form
+        className="grid gap-3 rounded-lg border border-catalog-border bg-catalog-surface/60 p-4 sm:grid-cols-2 lg:grid-cols-4"
+        onSubmit={onSubmit}
+      >
+        <PriceInput
+          label="Cost price"
+          min={0}
+          step="0.01"
+          value={costPrice}
+          onChange={(e) => setCostPrice(e.target.value)}
+          required
+        />
+        <PriceInput
+          label="Selling price"
+          min={0}
+          step="0.01"
+          value={sellingPrice}
+          onChange={(e) => setSellingPrice(e.target.value)}
+          required
+        />
+        <Input
+          label="Quantity"
+          type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          min={1}
+          step={1}
+          value={quantity}
+          onKeyDown={blockNonIntegerKeys}
+          onPaste={(event) => sanitizeIntegerPaste(event, setQuantity)}
+          onChange={(e) => setQuantity(digitsOnly(e.target.value))}
+          required
+        />
+
+        <div className="space-y-3 rounded-lg border border-dashed border-catalog-border bg-card p-3 sm:col-span-2 lg:col-span-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-catalog-text">
+                Batch bulk pricing tiers
+              </h3>
+              <p className="text-xs leading-relaxed text-catalog-text-muted">
+                Required: 1–3 tiers. Each tier&apos;s minimum quantity must not
+                exceed the batch quantity. When a buyer&apos;s total order qty
+                meets a tier, units served from this batch use that price;
+                otherwise the batch selling price applies.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-xs font-bold text-catalog-green hover:underline disabled:cursor-not-allowed disabled:text-catalog-text-muted"
+              onClick={addBatchTier}
+              disabled={batchTiers.length >= 3}
+            >
+              Add tier
+            </button>
+          </div>
+          {batchTiers.map((tier, index) => (
+            <div key={String(index)} className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-catalog-text-muted">
+                  Tier {index + 1}
+                </p>
+                {batchTiers.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-red-600 hover:underline"
+                    onClick={() => removeBatchTier(index)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Minimum quantity"
+                  type="number"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  min={1}
+                  step={1}
+                  value={tier.minQty}
+                  onKeyDown={blockNonIntegerKeys}
+                  onPaste={(event) =>
+                    sanitizeIntegerPaste(event, (value) =>
+                      updateBatchTier(index, { minQty: value }),
+                    )
+                  }
+                  onChange={(e) =>
+                    updateBatchTier(index, {
+                      minQty: digitsOnly(e.target.value),
+                    })
+                  }
+                />
+                <PriceInput
+                  label="Price per unit"
+                  min={0}
+                  step="0.01"
+                  value={tier.price}
+                  onChange={(e) =>
+                    updateBatchTier(index, { price: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {formError ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2 lg:col-span-4">
+            {formError}
+          </p>
+        ) : null}
+        <div className="sm:col-span-2 lg:col-span-4">
+          <Button type="submit" disabled={submitting}>
+            {submitting ? "Adding batch..." : "Add batch"}
+          </Button>
+        </div>
+      </form>
+
+      {isLoading ? (
+        <div className="h-24 animate-pulse rounded-lg bg-catalog-input" />
+      ) : error ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </p>
+      ) : data && data.length > 0 ? (
+        <div className="overflow-x-auto rounded-lg border border-catalog-border">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="text-xs uppercase text-catalog-text-muted">
+              <tr>
+                <th className="px-4 py-3">Batch</th>
+                <th className="px-4 py-3">Cost</th>
+                <th className="px-4 py-3">Selling</th>
+                <th className="px-4 py-3">Quantity</th>
+                <th className="px-4 py-3">Bulk tiers</th>
+                <th className="px-4 py-3">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-catalog-border">
+              {data.map((batch) => (
+                <tr key={batch.id}>
+                  <td className="px-4 py-3 font-semibold text-catalog-text">
+                    #{batch.batchNumber}
+                  </td>
+                  <td className="px-4 py-3">{formatInr(batch.costPrice)}</td>
+                  <td className="px-4 py-3">{formatInr(batch.sellingPrice)}</td>
+                  <td className="px-4 py-3">{formatCount(batch.quantity)}</td>
+                  <td className="px-4 py-3 text-xs">
+                    {batch.bulkTiers && batch.bulkTiers.length > 0 ? (
+                      <ul className="space-y-0.5">
+                        {[...batch.bulkTiers]
+                          .sort(
+                            (a, b) => a.minimumQuantity - b.minimumQuantity,
+                          )
+                          .map((tier) => (
+                            <li
+                              key={`${batch.id}-${tier.minimumQuantity}`}
+                              className="whitespace-nowrap text-catalog-text"
+                            >
+                              ≥{formatCount(tier.minimumQuantity)} →{" "}
+                              {formatInr(tier.pricePerUnit)}
+                            </li>
+                          ))}
+                      </ul>
+                    ) : (
+                      <span className="text-catalog-text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-catalog-text-muted">
+                    {new Date(batch.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-catalog-border bg-catalog-surface/70 px-4 py-6 text-center text-sm text-catalog-text-muted">
+          No batches yet. Add the first batch to start selling this product.
+        </p>
+      )}
+    </section>
   );
 }

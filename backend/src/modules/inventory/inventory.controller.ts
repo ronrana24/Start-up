@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { AdjustInventoryDto } from './dto/adjust-inventory.dto';
+import { CreateInventoryBatchDto } from './dto/create-batch.dto';
+import { UpdateInventoryBatchDto } from './dto/update-batch.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -11,21 +20,29 @@ import { InventoryService } from './inventory.service';
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
 
-  @Get()
-  list() {
-    return this.inventory.list();
+  @Get(':productId/batches')
+  listBatches(@Param('productId') productId: string) {
+    return this.inventory.listAllBatches(productId);
   }
 
-  @Get(':productId')
-  getOne(@Param('productId') productId: string) {
-    return this.inventory.getForProduct(productId);
-  }
-
-  @Patch(':productId')
-  adjust(
+  @Post(':productId/batches')
+  createBatch(
     @Param('productId') productId: string,
-    @Body() dto: AdjustInventoryDto,
+    @Body() dto: CreateInventoryBatchDto,
   ) {
-    return this.inventory.adjustAvailable(productId, dto.availableQty);
+    return this.inventory.addBatch(productId, {
+      costPrice: dto.costPrice,
+      sellingPrice: dto.sellingPrice,
+      quantity: dto.quantity,
+      bulkTiers: dto.bulkTiers,
+    });
+  }
+
+  @Patch('batches/:batchId')
+  updateBatch(
+    @Param('batchId') batchId: string,
+    @Body() dto: UpdateInventoryBatchDto,
+  ) {
+    return this.inventory.updateBatch(batchId, dto);
   }
 }

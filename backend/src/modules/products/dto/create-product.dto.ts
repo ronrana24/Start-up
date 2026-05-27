@@ -15,17 +15,41 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { ProductUnit } from '@prisma/client';
-import { BulkPricingTierDto } from './bulk-pricing-tier.dto';
+import { ProductCategory, ProductUnit } from '@prisma/client';
+import { BulkTierDto } from '../../inventory/dto/bulk-tier.dto';
+
+export class InitialInventoryBatchDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  costPrice!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sellingPrice!: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+
+  /** At least 1 tier (mandatory per spec), at most 3. */
+  @IsArray()
+  @ArrayMinSize(1, { message: 'At least 1 bulk tier is required.' })
+  @ArrayMaxSize(3, { message: 'A batch can have at most 3 bulk tiers.' })
+  @ValidateNested({ each: true })
+  @Type(() => BulkTierDto)
+  bulkTiers!: BulkTierDto[];
+}
 
 export class CreateProductDto {
   @IsString()
   @Length(1, 200)
   name!: string;
 
-  @IsString()
-  @Length(1, 100)
-  category!: string;
+  @IsEnum(ProductCategory)
+  category!: ProductCategory;
 
   @IsEnum(ProductUnit)
   unit!: ProductUnit;
@@ -39,16 +63,6 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
-
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  basePrice!: number;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => BulkPricingTierDto)
-  bulkPricingTiers!: BulkPricingTierDto[];
 
   @IsOptional()
   @IsArray()
@@ -64,9 +78,8 @@ export class CreateProductDto {
   )
   imageUrls?: string[];
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  initialAvailableQty?: number;
+  /** First inventory batch (batchNumber = 1) created alongside the product. */
+  @ValidateNested()
+  @Type(() => InitialInventoryBatchDto)
+  initialBatch!: InitialInventoryBatchDto;
 }
