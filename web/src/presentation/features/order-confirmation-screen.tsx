@@ -369,7 +369,7 @@ export function OrderConfirmationScreen() {
               {formatMoney(paidCents)}
             </span>
           </div>
-          {dueCents > 0 ? (
+          {dueCents > 0 && (
             <div className="mt-2 flex items-center justify-between">
               <span className="text-sm font-bold text-heading">
                 Due at delivery
@@ -378,7 +378,7 @@ export function OrderConfirmationScreen() {
                 {formatMoney(dueCents)}
               </span>
             </div>
-          ) : null}
+          )}
         </section>
 
         <section className="border-b border-default/60 bg-secondary-bg/80 px-4 py-4">

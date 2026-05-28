@@ -66,15 +66,18 @@ const configuration = () => {
       },
     },
     pricing: {
-      moqMinAmountInr: parseFloat(process.env.MOQ_MIN_AMOUNT_INR ?? '2000'),
+      moqMinAmountInr: parseFloat(process.env.MOQ_MIN_AMOUNT_INR ?? '500'),
+      /** Flat delivery fee charged when subtotal is below the free-delivery threshold. */
       standardDeliveryFeeInr: parseFloat(
-        process.env.STANDARD_DELIVERY_FEE_INR ?? '0',
+        process.env.STANDARD_DELIVERY_FEE_INR ?? '30',
       ),
-      priorityDeliveryMultiplier: parseFloat(
-        process.env.PRIORITY_DELIVERY_MULTIPLIER ?? '0.05',
+      /** Subtotal at or above which standard delivery becomes free. */
+      freeDeliveryThresholdInr: parseFloat(
+        process.env.FREE_DELIVERY_THRESHOLD_INR ?? '500',
       ),
-      minPriorityDeliveryFeeInr: parseFloat(
-        process.env.MIN_PRIORITY_DELIVERY_FEE_INR ?? '99',
+      /** Flat surcharge added on top of the standard fee when buyer picks PRIORITY. */
+      priorityDeliverySurchargeInr: parseFloat(
+        process.env.PRIORITY_DELIVERY_SURCHARGE_INR ?? '21',
       ),
     },
     payments: {

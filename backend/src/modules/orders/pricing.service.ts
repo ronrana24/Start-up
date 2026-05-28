@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   DeliveryType,
@@ -67,7 +67,11 @@ export class PricingService {
     user: User | null | undefined,
     productIds: string[],
   ): Promise<Map<string, ActiveSpecialRule>> {
-    if (!user || !user.roles.includes(UserRole.BUYER) || productIds.length === 0) {
+    if (
+      !user ||
+      !user.roles.includes(UserRole.BUYER) ||
+      productIds.length === 0
+    ) {
       return new Map();
     }
     const rules = await this.prisma.userProductPricingRule.findMany({
@@ -86,30 +90,34 @@ export class PricingService {
     return new Map(rules.map((r) => [r.productId, r]));
   }
 
-  assertMoq(subtotal: Prisma.Decimal): void {
-    const moq = new Prisma.Decimal(
-      this.config.get<number>('pricing.moqMinAmountInr') ?? 2000,
+  // MOQ enforcement was removed so buyers can place orders of any size.
+  // Small orders are covered by the delivery-fee schedule below (flat ₹30
+  // standard fee under the free-delivery threshold + ₹21 priority surcharge).
+
+  /** Standard delivery fee: flat below the threshold, free at or above it. */
+  private standardDeliveryFee(subtotal: Prisma.Decimal): Prisma.Decimal {
+    const threshold = new Prisma.Decimal(
+      this.config.get<number>('pricing.freeDeliveryThresholdInr') ?? 500,
     );
-    if (subtotal.lt(moq)) {
-      throw new BadRequestException(
-        `Minimum order value is ₹${moq.toFixed(2)} (pre-delivery)`,
-      );
-    }
+    if (subtotal.gte(threshold)) return new Prisma.Decimal(0);
+    return new Prisma.Decimal(
+      this.config.get<number>('pricing.standardDeliveryFeeInr') ?? 30,
+    );
+  }
+
+  /** Flat surcharge added on top of the standard fee for PRIORITY delivery. */
+  priorityDeliverySurcharge(): Prisma.Decimal {
+    return new Prisma.Decimal(
+      this.config.get<number>('pricing.priorityDeliverySurchargeInr') ?? 21,
+    );
   }
 
   deliveryFee(type: DeliveryType, subtotal: Prisma.Decimal): Prisma.Decimal {
-    if (type === DeliveryType.STANDARD) {
-      return new Prisma.Decimal(
-        this.config.get<number>('pricing.standardDeliveryFeeInr') ?? 0,
-      );
+    const base = this.standardDeliveryFee(subtotal);
+    if (type === DeliveryType.PRIORITY) {
+      return base.add(this.priorityDeliverySurcharge());
     }
-    const mult =
-      this.config.get<number>('pricing.priorityDeliveryMultiplier') ?? 0.05;
-    const minFee =
-      this.config.get<number>('pricing.minPriorityDeliveryFeeInr') ?? 99;
-    const raw = subtotal.mul(new Prisma.Decimal(mult));
-    const minDec = new Prisma.Decimal(minFee);
-    return raw.gt(minDec) ? raw : minDec;
+    return base;
   }
 
   /**
@@ -246,7 +254,6 @@ export class PricingService {
       pricedLines.push(priced);
       subtotal = subtotal.add(priced.lineTotal);
     }
-    this.assertMoq(subtotal);
     const deliveryFee = this.deliveryFee(deliveryType, subtotal);
     const total = subtotal.add(deliveryFee);
     return { pricedLines, subtotal, deliveryFee, total };

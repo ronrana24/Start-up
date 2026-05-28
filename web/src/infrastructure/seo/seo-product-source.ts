@@ -3,7 +3,6 @@ import {
   type ApiProduct,
   mapApiProduct,
 } from "@infrastructure/http/http-product-reader";
-import { MOCK_PRODUCTS } from "@infrastructure/mock/mock-products";
 
 type ApiEnvelope<T> = { data: T };
 type ApiPaginated<T> = {
@@ -37,14 +36,6 @@ function apiBaseUrl(): string {
     .replace(/\/+$/, "");
 }
 
-function fromMock(): SeoProductRecord[] {
-  return MOCK_PRODUCTS.map((product) => ({
-    ...product,
-    category: product.brand ?? "Disposable Products",
-    updatedAt: new Date().toISOString(),
-  }));
-}
-
 function mapSeoProduct(product: ApiProduct): SeoProductRecord {
   return {
     ...mapApiProduct(product),
@@ -56,7 +47,6 @@ function mapSeoProduct(product: ApiProduct): SeoProductRecord {
 
 export async function listSeoProducts(): Promise<SeoProductRecord[]> {
   const baseUrl = apiBaseUrl();
-  if (!baseUrl) return fromMock();
 
   try {
     const params = new URLSearchParams({
@@ -68,11 +58,11 @@ export async function listSeoProducts(): Promise<SeoProductRecord[]> {
       headers: { Accept: "application/json" },
       next: { revalidate: 300 },
     });
-    if (!res.ok) return fromMock();
+    if (!res.ok) return [];
     const body = unwrapBody<ApiPaginated<ApiProduct>>(await res.json());
     return body.items.map(mapSeoProduct);
   } catch {
-    return fromMock();
+    return [];
   }
 }
 
@@ -80,9 +70,6 @@ export async function getSeoProductById(
   id: string,
 ): Promise<SeoProductRecord | null> {
   const baseUrl = apiBaseUrl();
-  if (!baseUrl) {
-    return fromMock().find((product) => product.id === id) ?? null;
-  }
 
   try {
     const params = new URLSearchParams({ publicOnly: "true" });

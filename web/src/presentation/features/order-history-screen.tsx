@@ -24,7 +24,6 @@ import {
   spendTrendPercent,
   type TimeRange,
 } from "@presentation/features/order-history/order-history-utils";
-import { ORDER_HISTORY_DUMMY_ORDERS } from "@infrastructure/mock/order-history-dummy-orders";
 import { DownloadOrderInvoiceButton } from "@presentation/components/order/download-order-invoice-button";
 import { useOrdersQuery } from "@presentation/hooks/use-orders-query";
 import { useProductsQuery } from "@presentation/hooks/use-products-query";
@@ -121,16 +120,8 @@ export function OrderHistoryScreen() {
   const [openDropdown, setOpenDropdown] = useState<FilterDropdown>(null);
 
   const orders = useMemo(() => {
-    const isDev = process.env.NODE_ENV === "development";
-    if (isDev) {
-      if (!isQueryEnabled) return ORDER_HISTORY_DUMMY_ORDERS;
-      if (isPending) return [];
-      const api = data ?? [];
-      if (api.length > 0) return api;
-      return ORDER_HISTORY_DUMMY_ORDERS;
-    }
     return isQueryEnabled ? (data ?? []) : [];
-  }, [isQueryEnabled, isPending, data]);
+  }, [isQueryEnabled, data]);
 
   const usingDummyOrders =
     process.env.NODE_ENV === "development" &&

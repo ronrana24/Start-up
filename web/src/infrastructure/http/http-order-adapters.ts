@@ -9,7 +9,7 @@ import type {
   PlaceOrderResult,
   VerifyOrderPaymentInput,
 } from "@application/ports/order-writer";
-import type { Order, OrderStatus } from "@domain/order";
+import type { DeliveryMethod, Order, OrderStatus } from "@domain/order";
 import type { Coordinates, OrderDeliveryAddress } from "@domain/order";
 import { buildTrackingSteps } from "@infrastructure/mock/order-tracking-factory";
 import { apiJsonAuthorized } from "./http-client";
@@ -47,6 +47,8 @@ type ApiOrder = {
   dueAmount?: string | number;
   paymentCollectionRequired?: boolean;
   collectionStatus?: string;
+  deliveryType: DeliveryMethod;
+  deliveryFee?: string | number;
   addressSnapshot?: unknown;
   rider?: ApiRider | null;
   createdAt: string;
@@ -66,6 +68,8 @@ type ApiOrderSummary = {
   dueAmount?: string | number;
   paymentCollectionRequired?: boolean;
   collectionStatus?: string;
+  deliveryType: DeliveryMethod;
+  deliveryFee?: string | number;
   items: Array<{
     productId?: string;
     name: string;
@@ -159,6 +163,9 @@ function mapOrder(order: ApiOrder, input?: PlaceOrderInput): Order {
     userId: order.userId,
     createdAt: order.createdAt,
     totalCents: priceToCents(order.totalAmount),
+    deliveryType: order.deliveryType ?? "STANDARD",
+    deliveryFeeCents:
+      order.deliveryFee == null ? 0 : priceToCents(order.deliveryFee),
     payment: {
       mode: order.paymentMode ?? "UPI",
       status: order.paymentStatus ?? "PENDING",
@@ -287,6 +294,9 @@ export function createHttpOrderReader(baseUrl: string): OrderReader {
           userId,
           createdAt: order.orderDate,
           totalCents: priceToCents(order.orderAmount),
+          deliveryType: order.deliveryType ?? "STANDARD",
+          deliveryFeeCents:
+            order.deliveryFee == null ? 0 : priceToCents(order.deliveryFee),
           payment: {
             mode: order.paymentMode ?? "UPI",
             status: order.paymentStatus ?? "PENDING",

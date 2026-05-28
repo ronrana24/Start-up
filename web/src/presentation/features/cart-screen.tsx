@@ -1,6 +1,11 @@
 "use client";
 
 import { cartTotalCents } from "@domain/cart";
+import {
+  FREE_DELIVERY_THRESHOLD_CENTS,
+  computeDeliveryFeeCents,
+  remainingForFreeDeliveryCents,
+} from "@domain/delivery-pricing";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { LinkButton } from "@presentation/components/ui/link-button";
 import { cn } from "@presentation/lib/cn";
@@ -11,10 +16,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-/** Placeholder wholesale free-delivery threshold (matches mock scale). */
-const FREE_DELIVERY_THRESHOLD_CENTS = 250_00;
-/** Rough est. tax rate used in mock (~8.2%). */
-const EST_TAX_RATE = 0.082;
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -161,8 +162,8 @@ export function CartScreen() {
   );
   const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
-  const estTaxCents = Math.round(subtotalCents * EST_TAX_RATE);
-  const totalWithTaxCents = subtotalCents + estTaxCents;
+  const deliveryFeeCents = computeDeliveryFeeCents(subtotalCents);
+  const cartTotalIncludingDeliveryCents = subtotalCents + deliveryFeeCents;
   const freeProgress =
     FREE_DELIVERY_THRESHOLD_CENTS > 0
       ? Math.min(
@@ -170,10 +171,7 @@ export function CartScreen() {
           Math.round((subtotalCents / FREE_DELIVERY_THRESHOLD_CENTS) * 100),
         )
       : 0;
-  const remainingForFree = Math.max(
-    0,
-    FREE_DELIVERY_THRESHOLD_CENTS - subtotalCents,
-  );
+  const remainingForFree = remainingForFreeDeliveryCents(subtotalCents);
 
   if (lines.length === 0) {
     return (
@@ -505,16 +503,20 @@ export function CartScreen() {
         </div>
         <div className="mb-3 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">
-            Est. taxes &amp; fees
+            Delivery
           </span>
-          <span className="text-sm font-semibold text-heading">
-            {formatMoney(estTaxCents, cartCurrency)}
-          </span>
+          {deliveryFeeCents > 0 ? (
+            <span className="text-sm font-semibold text-heading">
+              {formatMoney(deliveryFeeCents, cartCurrency)}
+            </span>
+          ) : (
+            <span className="text-sm font-semibold text-success">Free</span>
+          )}
         </div>
         <div className="mb-4 flex items-center justify-between border-t border-default/40 pt-2">
           <span className="text-sm font-bold text-heading">Total</span>
           <span className="text-xl font-bold text-primary">
-            {formatMoney(totalWithTaxCents, cartCurrency)}
+            {formatMoney(cartTotalIncludingDeliveryCents, cartCurrency)}
           </span>
         </div>
         <LinkButton

@@ -409,6 +409,8 @@ export class OrdersService {
       dueAmount: o.dueAmount.toString(),
       paymentCollectionRequired: o.paymentCollectionRequired,
       collectionStatus: o.collectionStatus,
+      deliveryType: o.deliveryType,
+      deliveryFee: o.deliveryFee.toString(),
       orderDate: o.createdAt.toISOString(),
       items: o.items.map((line) => ({
         productId: line.productId,

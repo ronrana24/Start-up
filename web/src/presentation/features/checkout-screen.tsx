@@ -2,6 +2,11 @@
 
 import type { UserAddress } from "@application/ports/user-profile-gateway";
 import { cartTotalCents } from "@domain/cart";
+import {
+  deliveryMethodLabel,
+  quoteDelivery,
+  type DeliveryMethod,
+} from "@domain/delivery-pricing";
 import { DomainError } from "@domain/errors";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Button } from "@presentation/components/ui/button";
@@ -187,6 +192,21 @@ function TruckSmallIcon({ className }: { className?: string }) {
   );
 }
 
+function BoltIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+    </svg>
+  );
+}
+
 function ShieldIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -321,6 +341,133 @@ function loadRazorpayScript(): Promise<void> {
   });
 }
 
+function displayDeliveryDueCentsText(deliveryDueCents: number, cartCurrency: string) {
+  if (deliveryDueCents > 0) {
+    return (
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+          Due at delivery
+        </p>
+        <p
+          className={cn(
+            "mt-1 text-sm font-black",
+            deliveryDueCents > 0 ? "text-amber-700" : "text-success",
+          )}
+        >
+          {formatMoney(deliveryDueCents, cartCurrency)}
+        </p>
+      </div>
+    )
+  }
+  return null;
+}
+
+type DeliveryMethodSelectorProps = {
+  value: DeliveryMethod;
+  onChange: (next: DeliveryMethod) => void;
+  /** Base standard fee for the current cart subtotal (0 when above free threshold). */
+  standardFeeCents: number;
+  /** Total fee when PRIORITY is picked (base + surcharge). */
+  priorityTotalCents: number;
+  /** Just the priority surcharge portion, shown as a "+ ₹X" badge. */
+  prioritySurchargeCents: number;
+  cartCurrency: string;
+};
+
+function DeliveryMethodSelector({
+  value,
+  onChange,
+  standardFeeCents,
+  priorityTotalCents,
+  prioritySurchargeCents,
+  cartCurrency,
+}: DeliveryMethodSelectorProps) {
+  const standardSelected = value === "STANDARD";
+  const prioritySelected = value === "PRIORITY";
+  const standardPriceLabel =
+    standardFeeCents > 0 ? formatMoney(standardFeeCents, cartCurrency) : "Free";
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Delivery method"
+      className="grid gap-2 sm:grid-cols-2"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={standardSelected}
+        onClick={() => onChange("STANDARD")}
+        className={cn(
+          "flex min-h-[7.25rem] flex-col justify-between rounded-[10px] border p-3 text-left transition-colors",
+          standardSelected
+            ? "border-primary bg-primary-light/50 shadow-sm"
+            : "border-default bg-secondary-bg/70 hover:border-primary/30",
+        )}
+      >
+        <span className="flex items-start justify-between gap-3">
+          <span className="flex items-center gap-2 text-xs font-black text-heading">
+            <TruckSmallIcon className="text-primary" />
+            Standard Delivery
+          </span>
+          {standardSelected ? <CheckIcon className="text-primary" /> : null}
+        </span>
+        <span className="mt-2 block text-[11px] leading-snug text-secondary">
+          Arrives in 1–2 business days
+        </span>
+        <span className="mt-2 flex items-baseline justify-between gap-2">
+          <span className="text-sm font-black text-primary">
+            {standardPriceLabel}
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+            Default
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={prioritySelected}
+        onClick={() => onChange("PRIORITY")}
+        className={cn(
+          "relative flex min-h-[7.25rem] flex-col justify-between overflow-hidden rounded-[10px] border p-3 text-left transition-colors",
+          prioritySelected
+            ? "border-amber-500 bg-amber-50 shadow-sm"
+            : "border-amber-200 bg-amber-50/40 hover:border-amber-400",
+        )}
+      >
+        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+          <BoltIcon className="h-3 w-3" />
+          Faster
+        </span>
+        <span className="flex items-start justify-between gap-3">
+          <span className="flex items-center gap-2 text-xs font-black text-heading">
+            <BoltIcon className="text-amber-600" />
+            Priority Delivery
+          </span>
+          {prioritySelected ? <CheckIcon className="text-amber-600" /> : null}
+        </span>
+        <span className="mt-2 block text-[11px] leading-snug text-secondary">
+          Instant dispatch · arrives same day where available
+        </span>
+        <span className="mt-2 flex flex-col gap-0.5">
+          <span className="flex items-baseline gap-1">
+            <span className="text-base font-black leading-none text-amber-700">
+              +{formatMoney(prioritySurchargeCents, cartCurrency)}
+            </span>
+            <span className="text-[10px] font-semibold text-amber-700/80">
+              vs Standard
+            </span>
+          </span>
+          <span className="text-[10px] font-medium text-secondary">
+            Fast-track your order for just{" "}
+            {formatMoney(prioritySurchargeCents, cartCurrency)} more
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
 export function CheckoutScreen() {
   const router = useRouter();
   const deps = useAppDependencies();
@@ -347,6 +494,7 @@ export function CheckoutScreen() {
   const [paymentOption, setPaymentOption] = useState<PaymentOption>("FULL_UPI");
   const [orderNotes, setOrderNotes] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [deliveryType, setDeliveryType] = useState<DeliveryMethod>("STANDARD");
 
   const itemCount = useMemo(
     () => lines.reduce((n, l) => n + l.quantity, 0),
@@ -354,7 +502,12 @@ export function CheckoutScreen() {
   );
   const cartCurrency = lines[0]?.currency ?? "USD";
   const subtotalCents = useMemo(() => cartTotalCents(lines), [lines]);
-  const totalCents = subtotalCents;
+  const deliveryQuote = useMemo(
+    () => quoteDelivery(deliveryType, subtotalCents),
+    [deliveryType, subtotalCents],
+  );
+  const deliveryFeeCents = deliveryQuote.totalCents;
+  const totalCents = subtotalCents + deliveryFeeCents;
   const partialEligible = totalCents > PARTIAL_PAYMENT_THRESHOLD_CENTS;
   const effectivePaymentOption: PaymentOption = partialEligible
     ? paymentOption
@@ -513,7 +666,7 @@ export function CheckoutScreen() {
           title: l.title,
         })),
         addressId: selectedAddress.id,
-        deliveryType: "STANDARD",
+        deliveryType,
         paymentOption: effectivePaymentOption,
         orderNotes: orderNotes.trim() || undefined,
       });
@@ -528,7 +681,7 @@ export function CheckoutScreen() {
         setConflictDetected(true);
         setError(
           err.message ||
-            "Stock changed while you were checking out. Please review your cart and try again.",
+          "Stock changed while you were checking out. Please review your cart and try again.",
         );
         void queryClient.invalidateQueries({
           queryKey: queryKeys.products(uid),
@@ -737,6 +890,27 @@ export function CheckoutScreen() {
 
             <section className="border-b border-default/50 bg-card px-4 py-4">
               <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
+                <TruckSmallIcon className="text-primary" />
+                Delivery method
+              </h2>
+              <DeliveryMethodSelector
+                value={deliveryType}
+                onChange={setDeliveryType}
+                standardFeeCents={
+                  quoteDelivery("STANDARD", subtotalCents).baseFeeCents
+                }
+                priorityTotalCents={
+                  quoteDelivery("PRIORITY", subtotalCents).totalCents
+                }
+                prioritySurchargeCents={
+                  quoteDelivery("PRIORITY", subtotalCents).surchargeCents
+                }
+                cartCurrency={cartCurrency}
+              />
+            </section>
+
+            <section className="border-b border-default/50 bg-card px-4 py-4">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-bold text-heading">
                 <CardPayIcon className="text-primary" />
                 UPI payment
               </h2>
@@ -775,7 +949,7 @@ export function CheckoutScreen() {
                     No payment due at delivery
                   </span>
                 </button>
-                {partialEligible ? (
+                {partialEligible && (
                   <button
                     type="button"
                     onClick={() => setPaymentOption("PARTIAL_UPI")}
@@ -803,12 +977,6 @@ export function CheckoutScreen() {
                       at delivery
                     </span>
                   </button>
-                ) : (
-                  <div className="rounded-[10px] border border-dashed border-default bg-secondary-bg/60 p-3 text-[11px] leading-relaxed text-secondary">
-                    Partial payment becomes available above{" "}
-                    {formatMoney(PARTIAL_PAYMENT_THRESHOLD_CENTS, cartCurrency)}
-                    . This order is UPI full payment only.
-                  </div>
                 )}
               </div>
               <div className="mb-4 grid grid-cols-2 gap-2 rounded-[10px] border border-default/70 bg-secondary-bg/70 p-3">
@@ -820,19 +988,7 @@ export function CheckoutScreen() {
                     {formatMoney(payNowCents, cartCurrency)}
                   </p>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
-                    Due at delivery
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-1 text-sm font-black",
-                      deliveryDueCents > 0 ? "text-amber-700" : "text-success",
-                    )}
-                  >
-                    {formatMoney(deliveryDueCents, cartCurrency)}
-                  </p>
-                </div>
+                {displayDeliveryDueCentsText(deliveryDueCents, cartCurrency)}
               </div>
               <label className="flex w-full flex-col gap-1.5 text-sm">
                 <span className="font-medium text-heading">Order notes</span>
@@ -1001,9 +1157,9 @@ export function CheckoutScreen() {
                         Pay now {formatMoney(payNowCents, cartCurrency)}
                         {deliveryDueCents > 0
                           ? ` · Collect ${formatMoney(
-                              deliveryDueCents,
-                              cartCurrency,
-                            )} at delivery`
+                            deliveryDueCents,
+                            cartCurrency,
+                          )} at delivery`
                           : " · Nothing due at delivery"}
                       </p>
                     </div>
@@ -1061,33 +1217,43 @@ export function CheckoutScreen() {
             {formatMoney(subtotalCents, cartCurrency)}
           </span>
         </div>
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs font-medium text-muted">
-            Shipping &amp; delivery
-          </span>
-          <span className="text-sm font-semibold text-success">Free</span>
-        </div>
+        {deliveryType === "PRIORITY" ? (
+          <div className="mb-2">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1 text-xs font-medium text-amber-700">
+                <BoltIcon className="h-3 w-3" />
+                Priority Delivery
+              </span>
+              <span className="text-sm font-semibold text-amber-700">
+                {formatMoney(deliveryQuote.totalCents, cartCurrency)}
+              </span>
+            </div>
+            <p className="mt-0.5 text-[10px] font-medium text-amber-700/80">
+              Only {formatMoney(deliveryQuote.surchargeCents, cartCurrency)}{" "}
+              extra for faster delivery
+            </p>
+          </div>
+        ) : (
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-muted">
+              {deliveryMethodLabel(deliveryType)}
+            </span>
+            {deliveryQuote.baseFeeCents > 0 ? (
+              <span className="text-sm font-semibold text-heading">
+                {formatMoney(deliveryQuote.baseFeeCents, cartCurrency)}
+              </span>
+            ) : (
+              <span className="text-sm font-semibold text-success">Free</span>
+            )}
+          </div>
+        )}
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-muted">Pay now</span>
           <span className="text-sm font-semibold text-heading">
             {formatMoney(payNowCents, cartCurrency)}
           </span>
         </div>
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-xs font-medium text-muted">
-            Due at delivery
-          </span>
-          <span
-            className={cn(
-              "text-sm font-semibold",
-              deliveryDueCents > 0 ? "text-amber-700" : "text-success",
-            )}
-          >
-            {deliveryDueCents > 0
-              ? formatMoney(deliveryDueCents, cartCurrency)
-              : "None"}
-          </span>
-        </div>
+        {displayDeliveryDueCentsText(deliveryDueCents, cartCurrency)}
         <div className="mb-4 flex items-center justify-between border-t border-default/40 pt-2">
           <span className="text-sm font-bold text-heading">Total</span>
           <span className="text-xl font-bold text-primary">

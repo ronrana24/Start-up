@@ -1,4 +1,5 @@
 import type { OrderListPeriod } from './dto/list-orders-query.dto';
+import { DeliveryType } from '@prisma/client';
 
 /** Line-item display status derived from the parent order status. */
 export type OrderItemLineStatus = 'delivered' | 'processing' | 'other';
@@ -20,6 +21,8 @@ export type OrderListEntry = {
   dueAmount: string;
   paymentCollectionRequired: boolean;
   collectionStatus: string;
+  deliveryType: DeliveryType;
+  deliveryFee: string;
   orderDate: string;
   items: OrderListItemLine[];
 };

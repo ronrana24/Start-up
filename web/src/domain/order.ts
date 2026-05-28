@@ -66,6 +66,8 @@ export type OrderPaymentSummary = {
   collectionStatus: string;
 };
 
+export type DeliveryMethod = "STANDARD" | "PRIORITY";
+
 export type Order = {
   id: OrderId;
   userId: string;
@@ -77,4 +79,7 @@ export type Order = {
   rider?: OrderRider | null;
   deliveryAddress?: OrderDeliveryAddress | null;
   payment?: OrderPaymentSummary;
+  deliveryType: DeliveryMethod;
+  /** Total delivery fee actually charged (base standard fee + any priority surcharge). */
+  deliveryFeeCents?: number;
 };
