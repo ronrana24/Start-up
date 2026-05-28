@@ -14,45 +14,7 @@ import { useAuthStore } from "@presentation/state/auth-store";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
-/** Development preview: plausible API-shaped order until auth + real IDs load. */
-const SAMPLE_CONFIRMATION_LINES: OrderLine[] = [
-  {
-    productId: "CUP-ECO-12",
-    title: "Eco-Friendly Coffee Cups 12oz",
-    quantity: 2,
-    unitPriceCents: 4225,
-  },
-  {
-    productId: "CUT-COMP-SET",
-    title: "Compostable Fork & Knife Set",
-    quantity: 1,
-    unitPriceCents: 6500,
-  },
-  {
-    productId: "NAP-PREM-2P",
-    title: "Premium Dinner Napkins 2-Ply",
-    quantity: 4,
-    unitPriceCents: 1199,
-  },
-];
 
-const SAMPLE_CONFIRMATION_TOTAL = SAMPLE_CONFIRMATION_LINES.reduce(
-  (sum, l) => sum + l.unitPriceCents * l.quantity,
-  0,
-);
-
-function buildSampleConfirmationOrder(orderId?: string): Order {
-  const id = orderId?.trim() || "cl_mp9preview_order_confirm";
-  return {
-    id,
-    userId: "demo-user",
-    lines: SAMPLE_CONFIRMATION_LINES,
-    createdAt: "2026-04-30T14:32:00.000Z",
-    totalCents: SAMPLE_CONFIRMATION_TOTAL,
-    status: "confirmed",
-    trackingSteps: buildTrackingSteps("confirmed"),
-  };
-}
 
 const DEV_PREVIEW_FALLBACK = process.env.NODE_ENV === "development";
 
@@ -170,15 +132,7 @@ export function OrderConfirmationScreen() {
     );
   }
 
-  const usingDevSample =
-    DEV_PREVIEW_FALLBACK &&
-    (!fetchEnabled || (fetchEnabled && isError && !queryOrder));
-
-  const data: Order | undefined =
-    queryOrder ??
-    (usingDevSample
-      ? buildSampleConfirmationOrder(orderId || undefined)
-      : undefined);
+  const data: Order | undefined = queryOrder;
 
   if (!data) {
     return (
@@ -208,13 +162,6 @@ export function OrderConfirmationScreen() {
 
   return (
     <div className="relative -mx-4 flex min-h-[calc(100svh-6rem)] flex-1 flex-col overflow-hidden bg-card shadow-sm sm:mx-0 sm:rounded-2xl sm:border sm:border-default lg:min-h-[calc(100svh-8rem)]">
-      {usingDevSample ? (
-        <p className="border-b border-dashed border-primary/25 bg-primary-light/40 px-3 py-2 text-center text-[11px] text-secondary">
-          Development preview: sample backend order data (sign in + real order
-          ID to live data).
-        </p>
-      ) : null}
-
       <MobilePageHeader
         title="Order Confirmation"
         fallbackHref="/orders/history"

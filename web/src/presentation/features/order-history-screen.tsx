@@ -253,13 +253,6 @@ export function OrderHistoryScreen() {
     <div className="flex flex-col gap-0">
       <OrderHistoryHeader />
 
-      {usingDummyOrders ? (
-        <div className="mx-4 mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-heading sm:mx-0">
-          Sample orders (development only). Sign in to load your real order
-          history.
-        </div>
-      ) : null}
-
       <section className="mt-2 border-b border-default/60 bg-card p-4 sm:rounded-xl sm:border sm:border-default/60">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="text-sm font-bold text-heading">Spend summary</h2>
