@@ -205,18 +205,63 @@ function MetricCard({
   label,
   value,
   hint,
+  href,
+  hrefLabel,
 }: {
   label: string;
   value: string;
   hint: string;
+  /** When set, the card becomes a clickable link to this href. */
+  href?: string;
+  /** Accessible name for the link affordance (visually shown as a chevron). */
+  hrefLabel?: string;
 }) {
-  return (
-    <div className="rounded-xl border border-catalog-border bg-card p-4 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
-        {label}
-      </p>
+  const inner = (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-catalog-text-muted">
+          {label}
+        </p>
+        {href ? (
+          <span
+            aria-hidden
+            className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-catalog-green-muted text-catalog-green transition-colors group-hover:bg-catalog-green group-hover:text-white"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </span>
+        ) : null}
+      </div>
       <p className="mt-2 text-2xl font-bold text-catalog-text">{value}</p>
       <p className="mt-1 text-xs text-catalog-text-muted">{hint}</p>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        aria-label={hrefLabel ?? label}
+        className="group block rounded-xl border border-catalog-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-catalog-green/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-catalog-green/40"
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-catalog-border bg-card p-4 shadow-sm">
+      {inner}
     </div>
   );
 }
@@ -648,6 +693,8 @@ export function AdminUserDetailScreen() {
           label="Buyer orders"
           value={formatCount(orderStats.buyer.totalOrders)}
           hint={`${formatInr(orderStats.buyer.totalRevenue)} lifetime value`}
+          href={`/admin/users/${profile.id}/orders`}
+          hrefLabel={`View all orders by ${userName}`}
         />
         <MetricCard
           label="Average order"

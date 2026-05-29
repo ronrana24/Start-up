@@ -2,8 +2,8 @@
 
 import { cn } from "@presentation/lib/cn";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback } from "react";
 import { formatDateTime, statusLabel } from "./admin-format";
 import {
   listAdminUsers,
@@ -19,14 +19,44 @@ const roleFilters: Array<{ value: AdminRoleFilter; label: string }> = [
   { value: "ALL", label: "All" },
 ];
 
+const ROLE_FILTER_VALUES = new Set<AdminRoleFilter>(
+  roleFilters.map((f) => f.value),
+);
+
+function isAdminRoleFilter(value: string | null): value is AdminRoleFilter {
+  return value != null && ROLE_FILTER_VALUES.has(value as AdminRoleFilter);
+}
+
 function displayName(user: AdminUser): string {
   return user.name?.trim() || user.businessName || user.phone || "Unnamed user";
 }
 
 export function AdminUsersScreen() {
   const router = useRouter();
-  const [role, setRole] = useState<AdminRoleFilter>("BUYER");
-  const { data, error, isLoading } = useAdminQuery(
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Source the role from the URL so browser back / direct links land on the
+  // same view and React Query hits the same cache key as before.
+  const roleFromUrl = searchParams.get("role");
+  const role: AdminRoleFilter = isAdminRoleFilter(roleFromUrl)
+    ? roleFromUrl
+    : "BUYER";
+
+  const setRole = useCallback(
+    (next: AdminRoleFilter) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "BUYER") {
+        params.delete("role");
+      } else {
+        params.set("role", next);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const { data, error, isLoading, isFetching } = useAdminQuery(
     ["admin", "users", role, 1, 100],
     () => listAdminUsers(role, 1, 100),
   );
@@ -64,7 +94,7 @@ export function AdminUsersScreen() {
       </div>
 
       <div className="overflow-hidden rounded-xl border border-catalog-border bg-card shadow-sm">
-        {isLoading ? (
+        {isLoading || (!data && isFetching) ? (
           <div className="h-64 animate-pulse bg-catalog-input" />
         ) : error ? (
           <p className="p-4 text-sm text-red-600">{error}</p>
@@ -172,7 +202,7 @@ export function AdminUsersScreen() {
                     </td>
                   </tr>
                 ))}
-                {data?.items.length === 0 ? (
+                {(data?.items?.length ?? 0) === 0 ? (
                   <tr>
                     <td
                       colSpan={9}
