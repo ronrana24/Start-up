@@ -14,6 +14,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PatchDeliveryStatusDto } from './dto/patch-delivery-status.dto';
+import { PatchRiderAvailabilityDto } from './dto/patch-rider-availability.dto';
 import { PatchRiderLocationDto } from './dto/patch-rider-location.dto';
 import { PatchRiderStatusDto } from './dto/patch-rider-status.dto';
 import { QueryAvailableOrdersDto } from './dto/query-available-orders.dto';
@@ -37,6 +38,15 @@ export class RidersController {
   @Roles(UserRole.RIDER)
   me(@CurrentUser() user: User) {
     return this.riders.me(user);
+  }
+
+  @Patch('me/availability')
+  @Roles(UserRole.RIDER)
+  setAvailability(
+    @CurrentUser() user: User,
+    @Body() dto: PatchRiderAvailabilityDto,
+  ) {
+    return this.riders.setAvailability(user, dto.isAvailable);
   }
 
   @Get('orders/available')

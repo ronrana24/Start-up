@@ -107,7 +107,7 @@ export class OrdersService {
     private readonly deliveryEvents: DeliveryEventsService,
     private readonly deliveryPush: DeliveryPushService,
     private readonly payments: PaymentsService,
-  ) { }
+  ) {}
 
   /**
    * Retry the serializable order-creation transaction on transient
@@ -156,9 +156,9 @@ export class OrdersService {
     throw lastError instanceof Error
       ? lastError
       : new ConflictException({
-        code: 'CONFLICT',
-        message: 'Could not place order. Please try again.',
-      });
+          code: 'CONFLICT',
+          message: 'Could not place order. Please try again.',
+        });
   }
 
   async create(user: User, dto: CreateOrderDto) {
@@ -188,8 +188,11 @@ export class OrdersService {
       }
       return { product, quantity: qty };
     });
-    const { pricedLines, subtotal, deliveryFee, total } =
-      await this.pricing.computeOrderTotals(user, lines, dto.deliveryType);
+    const { pricedLines, total } = await this.pricing.computeOrderTotals(
+      user,
+      lines,
+      dto.deliveryType,
+    );
     const paymentSummary = this.payments.paymentSummaryForCreate(
       total,
       dto.paymentOption === CheckoutPaymentOption.PARTIAL_UPI,
@@ -197,15 +200,15 @@ export class OrdersService {
 
     const coordinates =
       typeof address.latitude === 'number' &&
-        Number.isFinite(address.latitude) &&
-        typeof address.longitude === 'number' &&
-        Number.isFinite(address.longitude)
+      Number.isFinite(address.latitude) &&
+      typeof address.longitude === 'number' &&
+      Number.isFinite(address.longitude)
         ? {
-          lat: address.latitude,
-          lng: address.longitude,
-          accuracyMeters: address.locationAccuracyMeters,
-          source: address.locationSource ?? 'buyer_pin',
-        }
+            lat: address.latitude,
+            lng: address.longitude,
+            accuracyMeters: address.locationAccuracyMeters,
+            source: address.locationSource ?? 'buyer_pin',
+          }
         : null;
 
     const addressSnapshot = {
@@ -220,122 +223,117 @@ export class OrdersService {
       ...(coordinates ? { coordinates } : {}),
     };
 
-    const order = await this.runSerializableOrderTx(
-      async (tx) => {
-        // Re-allocate inside the serializable tx so the price segments the
-        // buyer is charged exactly match the batches we decrement. We can't
-        // reuse the pre-tx allocation snapshot because another buyer may
-        // have drained a batch between quote and place.
-        type CommittedLine = {
+    const order = await this.runSerializableOrderTx(async (tx) => {
+      // Re-allocate inside the serializable tx so the price segments the
+      // buyer is charged exactly match the batches we decrement. We can't
+      // reuse the pre-tx allocation snapshot because another buyer may
+      // have drained a batch between quote and place.
+      type CommittedLine = {
         productId: string;
+        quantity: number;
+        allocations: Array<{
+          batchId: string;
+          batchNumber: number;
           quantity: number;
-          allocations: Array<{
-            batchId: string;
-            batchNumber: number;
-            quantity: number;
-            unitPrice: Prisma.Decimal;
-            lineTotal: Prisma.Decimal;
-          }>;
-          blendedUnitPrice: Prisma.Decimal;
+          unitPrice: Prisma.Decimal;
           lineTotal: Prisma.Decimal;
-          pricingSnapshot: Prisma.InputJsonValue;
-        };
-        const committed: CommittedLine[] = [];
-        let committedSubtotal = new Prisma.Decimal(0);
-        for (const line of pricedLines) {
-          const allocations = await this.inventory.reserveInTransaction(
-            tx,
-            line.productId,
-            line.quantity,
-          );
-          // Recompute pricing from the fresh allocations using the same
-          // tier + special-rule logic the cart preview used. This keeps the
-          // recorded snapshot internally consistent even if another buyer
-          // drained a batch between the quote and this transaction.
-          const rule = await this.pricing.resolveActiveRule(
-            user,
-            line.productId,
-          );
-          const priced = this.pricing.buildLineFromAllocations(
-            line.productId,
-            line.quantity,
-            allocations,
-            rule,
-          );
-          committed.push({
-            productId: priced.productId,
-            quantity: priced.quantity,
-            allocations: priced.batches.map((b) => ({
-              batchId: b.batchId,
-              batchNumber: b.batchNumber,
-              quantity: b.quantity,
-              unitPrice: b.unitPrice,
-              lineTotal: b.lineTotal,
-            })),
-            blendedUnitPrice: priced.unitPrice,
-            lineTotal: priced.lineTotal,
-            pricingSnapshot: priced.pricingSnapshot,
-          });
-          committedSubtotal = committedSubtotal.add(priced.lineTotal);
-        }
-
-        const committedDeliveryFee = this.pricing.deliveryFee(
-          dto.deliveryType,
-          committedSubtotal,
+        }>;
+        blendedUnitPrice: Prisma.Decimal;
+        lineTotal: Prisma.Decimal;
+        pricingSnapshot: Prisma.InputJsonValue;
+      };
+      const committed: CommittedLine[] = [];
+      let committedSubtotal = new Prisma.Decimal(0);
+      for (const line of pricedLines) {
+        const allocations = await this.inventory.reserveInTransaction(
+          tx,
+          line.productId,
+          line.quantity,
         );
-        const committedTotal = committedSubtotal.add(committedDeliveryFee);
-        const committedPaymentSummary = this.payments.paymentSummaryForCreate(
-          committedTotal,
-          dto.paymentOption === CheckoutPaymentOption.PARTIAL_UPI,
+        // Recompute pricing from the fresh allocations using the same
+        // tier + special-rule logic the cart preview used. This keeps the
+        // recorded snapshot internally consistent even if another buyer
+        // drained a batch between the quote and this transaction.
+        const rule = await this.pricing.resolveActiveRule(user, line.productId);
+        const priced = this.pricing.buildLineFromAllocations(
+          line.productId,
+          line.quantity,
+          allocations,
+          rule,
         );
-
-        const order = await tx.order.create({
-          data: {
-            userId: user.id,
-            status: OrderStatus.PLACED,
-            deliveryType: dto.deliveryType,
-            deliveryFee: committedDeliveryFee,
-            subtotalAmount: committedSubtotal,
-            totalAmount: committedTotal,
-            addressSnapshot,
-            paymentMode: committedPaymentSummary.paymentMode,
-            paymentStatus: PaymentStatus.PENDING,
-            paidAmount: 0,
-            dueAmount: committedPaymentSummary.dueAmount,
-            paymentCollectionRequired:
-              committedPaymentSummary.paymentCollectionRequired,
-            collectionStatus: committedPaymentSummary.collectionStatus,
-            collectionInstructions:
-              committedPaymentSummary.collectionInstructions,
-            items: {
-              create: committed.map((l) => ({
-                productId: l.productId,
-                quantity: l.quantity,
-                priceApplied: l.blendedUnitPrice,
-                pricingSnapshot: l.pricingSnapshot,
-              })),
-            },
-          },
-          include: { items: true },
+        committed.push({
+          productId: priced.productId,
+          quantity: priced.quantity,
+          allocations: priced.batches.map((b) => ({
+            batchId: b.batchId,
+            batchNumber: b.batchNumber,
+            quantity: b.quantity,
+            unitPrice: b.unitPrice,
+            lineTotal: b.lineTotal,
+          })),
+          blendedUnitPrice: priced.unitPrice,
+          lineTotal: priced.lineTotal,
+          pricingSnapshot: priced.pricingSnapshot,
         });
+        committedSubtotal = committedSubtotal.add(priced.lineTotal);
+      }
 
-        for (const item of order.items) {
-          const match = committed.find((l) => l.productId === item.productId);
-          if (!match) continue;
-          for (const allocation of match.allocations) {
-            await tx.orderItemBatchAllocation.create({
-              data: {
-                orderItemId: item.id,
-                batchId: allocation.batchId,
-                quantity: allocation.quantity,
-                unitPrice: allocation.unitPrice,
-              },
-            });
-          }
+      const committedDeliveryFee = this.pricing.deliveryFee(
+        dto.deliveryType,
+        committedSubtotal,
+      );
+      const committedTotal = committedSubtotal.add(committedDeliveryFee);
+      const committedPaymentSummary = this.payments.paymentSummaryForCreate(
+        committedTotal,
+        dto.paymentOption === CheckoutPaymentOption.PARTIAL_UPI,
+      );
+
+      const order = await tx.order.create({
+        data: {
+          userId: user.id,
+          status: OrderStatus.PLACED,
+          deliveryType: dto.deliveryType,
+          deliveryFee: committedDeliveryFee,
+          subtotalAmount: committedSubtotal,
+          totalAmount: committedTotal,
+          addressSnapshot,
+          paymentMode: committedPaymentSummary.paymentMode,
+          paymentStatus: PaymentStatus.PENDING,
+          paidAmount: 0,
+          dueAmount: committedPaymentSummary.dueAmount,
+          paymentCollectionRequired:
+            committedPaymentSummary.paymentCollectionRequired,
+          collectionStatus: committedPaymentSummary.collectionStatus,
+          collectionInstructions:
+            committedPaymentSummary.collectionInstructions,
+          items: {
+            create: committed.map((l) => ({
+              productId: l.productId,
+              quantity: l.quantity,
+              priceApplied: l.blendedUnitPrice,
+              pricingSnapshot: l.pricingSnapshot,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      for (const item of order.items) {
+        const match = committed.find((l) => l.productId === item.productId);
+        if (!match) continue;
+        for (const allocation of match.allocations) {
+          await tx.orderItemBatchAllocation.create({
+            data: {
+              orderItemId: item.id,
+              batchId: allocation.batchId,
+              quantity: allocation.quantity,
+              unitPrice: allocation.unitPrice,
+            },
+          });
         }
-        return order;
-      },
-    );
+      }
+      return order;
+    });
 
     const fullOrder = await this.getDeliveryOrderOrThrow(order.id);
     let payment: Awaited<ReturnType<PaymentsService['createCheckoutPayment']>>;
@@ -430,7 +428,9 @@ export class OrdersService {
       include: {
         items: {
           include: {
-            product: { select: { name: true } },
+            product: {
+              select: { name: true, unit: true, imageUrls: true },
+            },
             batchAllocations: {
               orderBy: { createdAt: 'asc' },
               include: {

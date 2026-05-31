@@ -35,6 +35,10 @@ export type OrderLine = {
   title: string;
   quantity: number;
   unitPriceCents: number;
+  /** Hero image for the ordered product, when the API surfaces it. */
+  imageUrl?: string | null;
+  /** Sale unit (e.g. "PIECE", "PACK") when available, for buyer clarity. */
+  unit?: string | null;
   /** Batch-level split for this line, if the backend split it across batches. */
   batchSegments?: OrderLineBatchSegment[];
   hasMixedBatches?: boolean;

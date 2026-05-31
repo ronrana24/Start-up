@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 import { cn } from "@presentation/lib/cn";
 import { useAuthStore } from "../state/auth-store";
 import { useCartStore } from "../state/cart-store";
+import { useActiveOrdersCountQuery } from "@presentation/hooks/use-active-orders-count-query";
 
 function isOrderTrackDetail(pathname: string): boolean {
   return /^\/orders\/[^/]+\/track$/.test(pathname);
@@ -43,26 +44,41 @@ function hasFlushMobileHeader(pathname: string): boolean {
   );
 }
 
+function formatBadgeCount(count: number): string {
+  // Cap at 999+ so the badge never breaks the nav layout on small screens.
+  if (count > 999) return "999+";
+  if (count > 99) return "99+";
+  return String(count);
+}
+
 function NavLink({
   href,
   label,
   icon,
   active,
   badgeCount,
+  badgeTone = "info",
 }: {
   href: string;
   label: string;
   icon: ReactNode;
   active: boolean;
   badgeCount?: number;
+  /** "info" = neutral (cart). "alert" = attention-getting (active orders). */
+  badgeTone?: "info" | "alert";
 }) {
   const showBadge = typeof badgeCount === "number" && badgeCount > 0;
-  const badgeLabel = badgeCount && badgeCount > 99 ? "99+" : badgeCount;
+  const badgeLabel = showBadge ? formatBadgeCount(badgeCount) : null;
+  const isWideBadge = badgeLabel != null && badgeLabel.length > 2;
 
   return (
     <Link
       href={href}
-      aria-label={showBadge ? `${label}, ${badgeLabel} items` : label}
+      aria-label={
+        showBadge && badgeLabel != null
+          ? `${label}, ${badgeLabel} active`
+          : label
+      }
       className={cn(
         "flex min-h-[3.5rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.35rem] px-0.5 py-1.5 text-[10px] font-semibold leading-tight transition-colors sm:text-[11px]",
         active
@@ -80,7 +96,15 @@ function NavLink({
       >
         {icon}
         {showBadge ? (
-          <span className="absolute -right-2 -top-2 flex min-h-[1.05rem] min-w-[1.05rem] items-center justify-center rounded-full border border-white/80 bg-catalog-green px-1 text-[9px] font-black leading-none text-white shadow-sm">
+          <span
+            className={cn(
+              "absolute -right-2 -top-2 inline-flex items-center justify-center rounded-full border border-white/80 font-black leading-none text-white shadow-sm",
+              isWideBadge
+                ? "h-[1.05rem] px-1.5 text-[8px]"
+                : "min-h-[1.05rem] min-w-[1.05rem] px-1 text-[9px]",
+              badgeTone === "alert" ? "bg-amber-500" : "bg-catalog-green",
+            )}
+          >
             {badgeLabel}
           </span>
         ) : null}
@@ -98,8 +122,12 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
   const catalogRoute = pathname === "/catalog";
   const flushMobileHeader = hasFlushMobileHeader(pathname);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const userId = useAuthStore((s) => s.userId);
   const lines = useCartStore((s) => s.lines);
   const cartCount = lines.reduce((n, l) => n + l.quantity, 0);
+  const activeOrdersCount = useActiveOrdersCountQuery(
+    isAuthenticated ? userId : null,
+  );
 
   return (
     <div className="flex min-h-0 max-w-full flex-1 flex-col overflow-x-hidden">
@@ -148,6 +176,8 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
                 label="Tracking"
                 icon={<NavTrackingIcon className="h-6 w-6" />}
                 active={trackingActive}
+                badgeCount={activeOrdersCount}
+                badgeTone="alert"
               />
               <NavLink
                 href="/account"

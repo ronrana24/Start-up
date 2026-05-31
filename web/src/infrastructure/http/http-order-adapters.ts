@@ -21,7 +21,11 @@ type ApiOrderItem = {
   productId: string;
   quantity: number;
   priceApplied: string | number;
-  product?: { name?: string | null } | null;
+  product?: {
+    name?: string | null;
+    unit?: string | null;
+    imageUrls?: string[] | null;
+  } | null;
   batchAllocations?: Array<{
     batchId: string;
     quantity: number;
@@ -200,11 +204,16 @@ function mapOrder(order: ApiOrder, input?: PlaceOrderInput): Order {
           lineTotalCents: unitPriceCents * allocation.quantity,
         };
       });
+      const imageUrl =
+        item.product?.imageUrls?.find((url) => typeof url === "string" && url) ??
+        null;
       return {
         productId: item.productId,
         title: item.product?.name ?? originalLine?.title ?? item.productId,
         quantity: item.quantity,
         unitPriceCents: priceToCents(item.priceApplied),
+        imageUrl,
+        unit: item.product?.unit ?? null,
         batchSegments: segments.length > 0 ? segments : undefined,
         hasMixedBatches: segments.length > 1,
       };

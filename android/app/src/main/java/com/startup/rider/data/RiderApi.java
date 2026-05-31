@@ -83,4 +83,7 @@ public interface RiderApi {
 
     @PATCH("/api/riders/me/location")
     Call<Dtos.Envelope<Dtos.RiderDto>> patchLocation(@Body Dtos.PatchLocationRequest request);
+
+    @PATCH("/api/riders/me/availability")
+    Call<Dtos.Envelope<Dtos.RiderDto>> patchAvailability(@Body Dtos.PatchAvailabilityRequest request);
 }

@@ -374,6 +374,7 @@ model Rider {
   name            String
   phone           String        @unique
   status          RiderStatus   @default(IDLE)
+  isAvailable     Boolean       @default(true)
   currentLocation Json?
   orders          Order[]
   devices         RiderDevice[]
@@ -383,6 +384,7 @@ model Rider {
 
   @@index([status])
   @@index([userId])
+  @@index([isAvailable])
 }
 
 model RiderDevice {

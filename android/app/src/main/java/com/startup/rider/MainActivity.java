@@ -921,7 +921,16 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private void routeAfterAuthenticated(Dtos.UserDto user, Dtos.RiderDto authRider) {
-        if (user == null || !"RIDER".equals(user.role)) {
+        boolean hasRiderRole = false;
+        if (user != null && user.roles != null) {
+            for (String role : user.roles) {
+                if ("RIDER".equals(role)) {
+                    hasRiderRole = true;
+                    break;
+                }
+            }
+        }
+        if (!hasRiderRole) {
             sessionStore.clear();
             authMode = AuthMode.PICK;
             authError = "This Google account is not registered for rider access.";
@@ -1574,7 +1583,16 @@ public final class MainActivity extends AppCompatActivity {
         repository.refreshProfile(new UiResult<Dtos.UserDto>() {
             @Override
             public void success(Dtos.UserDto user) {
-                if (user == null || !"RIDER".equals(user.role)) {
+                boolean hasRiderRole = false;
+                if (user != null && user.roles != null) {
+                    for (String role : user.roles) {
+                        if ("RIDER".equals(role)) {
+                            hasRiderRole = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasRiderRole) {
                     sessionStore.clear();
                     showLogin();
                     return;
@@ -1717,10 +1735,30 @@ public final class MainActivity extends AppCompatActivity {
             Ui.gap(content, 12);
             content.addView(performanceOverviewCards());
             Ui.gap(content, 12);
+            if (riderOffline()) {
+                content.addView(offlineStatusCard());
+                Ui.gap(content, 12);
+            }
             List<Dtos.OrderDto> offers = visibleOrderOffers();
             if (!offers.isEmpty()) {
-                content.addView(orderOffersCard("New order offers", offers, true));
-                Ui.gap(content, 12);
+                // Segregate so priority offers always read above standard ones.
+                List<Dtos.OrderDto> priority = new ArrayList<>();
+                List<Dtos.OrderDto> standard = new ArrayList<>();
+                for (Dtos.OrderDto order : offers) {
+                    if (Dtos.isPriority(order)) {
+                        priority.add(order);
+                    } else {
+                        standard.add(order);
+                    }
+                }
+                if (!priority.isEmpty()) {
+                    content.addView(orderOffersCard("Priority Orders", priority, true));
+                    Ui.gap(content, 12);
+                }
+                if (!standard.isEmpty()) {
+                    content.addView(orderOffersCard("Standard Orders", standard, false));
+                    Ui.gap(content, 12);
+                }
             }
             if (hasActiveDeliveries()) {
                 content.addView(premiumActiveDeliveriesCard());
@@ -1738,12 +1776,24 @@ public final class MainActivity extends AppCompatActivity {
         updateRiderRuntimeState();
     }
 
+    private boolean riderOffline() {
+        Dtos.RiderDto localRider = rider == null ? sessionStore.rider() : rider;
+        return localRider != null && !localRider.isAvailable;
+    }
+
     private List<Dtos.OrderDto> visibleOrderOffers() {
+        // Offline riders must not see any new-order offers, anywhere.
+        if (riderOffline()) {
+            return new ArrayList<>();
+        }
         List<Dtos.OrderDto> offers = new ArrayList<>();
         addVisibleOffers(offers, pushedOrderOffers);
         if (availableOrders != null && availableOrders.items != null) {
             addVisibleOffers(offers, availableOrders.items);
         }
+        // Client-side fallback so priority-first ordering stays stable when
+        // socket-pushed offers and paginated results are merged together.
+        java.util.Collections.sort(offers, Dtos.OFFER_PRIORITY_COMPARATOR);
         return offers;
     }
 
@@ -1790,9 +1840,17 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View orderOfferRow(Dtos.OrderDto order) {
+        boolean priority = Dtos.isPriority(order);
+
         LinearLayout box = Ui.vertical(this);
         box.setPadding(Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12), Ui.dp(this, 12));
-        box.setBackground(Ui.strokedBackground(this, Ui.CARD, Ui.DEFAULT_BORDER, 12));
+        if (priority) {
+            // Subtle amber accent + tint so priority offers stand out without
+            // overwhelming the list.
+            box.setBackground(Ui.strokedBackground(this, Color.parseColor("#FFF7ED"), Color.parseColor("#F59E0B"), 12));
+        } else {
+            box.setBackground(Ui.strokedBackground(this, Ui.CARD, Ui.DEFAULT_BORDER, 12));
+        }
 
         LinearLayout top = Ui.horizontal(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
@@ -1802,6 +1860,10 @@ public final class MainActivity extends AppCompatActivity {
         price.setTextColor(Ui.PRIMARY);
         price.setGravity(Gravity.END);
         top.addView(title);
+        if (priority) {
+            top.addView(priorityBadge());
+            Ui.gap(top, 8);
+        }
         top.addView(price);
         box.addView(top);
 
@@ -1829,6 +1891,15 @@ public final class MainActivity extends AppCompatActivity {
         buttons.addView(accept);
         box.addView(buttons);
         return box;
+    }
+
+    private TextView priorityBadge() {
+        TextView badge = Ui.text(this, "PRIORITY", 10, Typeface.BOLD);
+        badge.setTextColor(Color.WHITE);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(Ui.dp(this, 8), Ui.dp(this, 3), Ui.dp(this, 8), Ui.dp(this, 3));
+        badge.setBackground(Ui.roundedBackground(this, Color.parseColor("#F59E0B"), 10));
+        return badge;
     }
 
     private String orderPriceLabel(Dtos.OrderDto order) {
@@ -1946,6 +2017,9 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View statusToggle(Dtos.RiderDto localRider) {
+        boolean ready = runtimeAccessReady();
+        boolean available = localRider == null || localRider.isAvailable;
+
         LinearLayout toggle = Ui.horizontal(this);
         toggle.setGravity(Gravity.CENTER_VERTICAL);
         toggle.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
@@ -1961,21 +2035,34 @@ public final class MainActivity extends AppCompatActivity {
                 promptRequiredRuntimeAccess();
                 return;
             }
-            publishCurrentLocationSnapshot();
-            Toast.makeText(this, "You are online and ready for deliveries", Toast.LENGTH_SHORT).show();
+            if (riderOffline()) {
+                setRiderAvailability(true);
+            } else {
+                confirmGoOffline();
+            }
         });
 
         View dot = new View(this);
-        dot.setBackground(Ui.roundedBackground(this, runtimeAccessReady() ? Color.parseColor("#86EFAC") : Color.parseColor("#FDE68A"), 5));
+        int dotColor;
+        if (!ready) {
+            dotColor = Color.parseColor("#FDE68A");
+        } else if (available) {
+            dotColor = Color.parseColor("#86EFAC");
+        } else {
+            dotColor = Color.parseColor("#FCA5A5");
+        }
+        dot.setBackground(Ui.roundedBackground(this, dotColor, 5));
         dot.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 10), Ui.dp(this, 10)));
         toggle.addView(dot);
         Ui.gap(toggle, 8);
 
         String label;
-        if (!runtimeAccessReady()) {
+        if (!ready) {
             label = "Setup needed";
+        } else if (!available) {
+            label = "Offline";
         } else if (hasActiveDeliveries() || (localRider != null && "BUSY".equals(localRider.status))) {
-            label = "Busy";
+            label = "Online · Busy";
         } else {
             label = "Online";
         }
@@ -1983,6 +2070,63 @@ public final class MainActivity extends AppCompatActivity {
         text.setTextColor(Color.WHITE);
         toggle.addView(text);
         return toggle;
+    }
+
+    private void confirmGoOffline() {
+        new AlertDialog.Builder(this)
+                .setTitle("Go offline?")
+                .setMessage("You won't receive new orders while offline. Deliveries already in progress stay active.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Go offline", (dialog, which) -> setRiderAvailability(false))
+                .show();
+    }
+
+    /**
+     * Persists the rider's availability toggle. Applies optimistically for an
+     * instant response, then reverts if the backend call fails. The DB is the
+     * source of truth, so the choice survives restarts/logout/devices.
+     */
+    private void setRiderAvailability(boolean target) {
+        Dtos.RiderDto current = rider == null ? sessionStore.rider() : rider;
+        if (current != null && current.isAvailable == target) {
+            return;
+        }
+        if (current != null) {
+            current.isAvailable = target;
+            rider = current;
+            sessionStore.updateRider(current);
+        }
+        render();
+        if (target) {
+            publishCurrentLocationSnapshot();
+        }
+        repository.setAvailability(target, new UiResult<Dtos.RiderDto>() {
+            @Override
+            public void success(Dtos.RiderDto value) {
+                if (value != null) {
+                    rider = value;
+                }
+                render();
+                Toast.makeText(MainActivity.this,
+                        target ? "You're online for new orders" : "You're offline",
+                        Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void error(RiderRepository.ApiFailure failure) {
+                Dtos.RiderDto reverted = rider == null ? sessionStore.rider() : rider;
+                if (reverted != null) {
+                    reverted.isAvailable = !target;
+                    rider = reverted;
+                    sessionStore.updateRider(reverted);
+                }
+                render();
+                String message = failure != null && failure.message != null
+                        ? failure.message
+                        : "Could not update availability. Try again.";
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private View socketChip() {
@@ -3504,6 +3648,10 @@ public final class MainActivity extends AppCompatActivity {
     }
 
     private View availableOrdersCard() {
+        if (riderOffline()) {
+            return offlineStatusCard();
+        }
+
         List<Dtos.OrderDto> items = visibleOrderOffers();
         if (items.isEmpty()) {
             MaterialCardView card = Ui.card(this);
@@ -3514,7 +3662,33 @@ public final class MainActivity extends AppCompatActivity {
             return card;
         }
 
-        MaterialCardView card = orderOffersCard("Available orders", items, false);
+        // Segregate priority from standard so priority offers always read first.
+        List<Dtos.OrderDto> priority = new ArrayList<>();
+        List<Dtos.OrderDto> standard = new ArrayList<>();
+        for (Dtos.OrderDto order : items) {
+            if (Dtos.isPriority(order)) {
+                priority.add(order);
+            } else {
+                standard.add(order);
+            }
+        }
+
+        LinearLayout container = Ui.vertical(this);
+        if (!priority.isEmpty()) {
+            container.addView(orderOffersCard("Priority Orders", priority, true));
+            Ui.gap(container, 12);
+        }
+
+        MaterialCardView card;
+        if (standard.isEmpty()) {
+            card = Ui.card(this);
+            LinearLayout emptyBody = Ui.vertical(this);
+            emptyBody.addView(Ui.text(this, "Standard Orders (0)", 18, Typeface.BOLD));
+            emptyBody.addView(Ui.text(this, "No standard orders right now.", 13, Typeface.NORMAL));
+            card.addView(emptyBody);
+        } else {
+            card = orderOffersCard("Standard Orders", standard, false);
+        }
         LinearLayout body = (LinearLayout) card.getChildAt(0);
 
         Ui.gap(body, 10);
@@ -3536,6 +3710,17 @@ public final class MainActivity extends AppCompatActivity {
         pager.addView(previous);
         pager.addView(next);
         body.addView(pager);
+
+        container.addView(card);
+        return container;
+    }
+
+    private View offlineStatusCard() {
+        MaterialCardView card = Ui.card(this);
+        LinearLayout body = Ui.vertical(this);
+        body.addView(Ui.text(this, "You're offline", 18, Typeface.BOLD));
+        body.addView(Ui.text(this, "Turn on availability to start receiving new orders. Any deliveries already in progress stay active.", 13, Typeface.NORMAL));
+        card.addView(body);
         return card;
     }
 
@@ -3802,6 +3987,11 @@ public final class MainActivity extends AppCompatActivity {
         if (order == null || order.id == null || order.id.trim().isEmpty()) {
             return;
         }
+        // Defense-in-depth: the backend already withholds offers from offline
+        // riders; ignore any in-flight push that races the toggle.
+        if (riderOffline()) {
+            return;
+        }
         rejectedOfferIds.remove(order.id);
         addPushedOrderOffer(order);
         activeMainTab = MainTab.HOME;
@@ -3985,6 +4175,25 @@ public final class MainActivity extends AppCompatActivity {
             public void onConnectionState(String state) {
                 runOnUiThread(() -> {
                     socketState = state;
+                    render();
+                });
+            }
+
+            @Override
+            public void onRiderAvailabilityChanged(Boolean isAvailable) {
+                if (isAvailable == null) {
+                    return;
+                }
+                runOnUiThread(() -> {
+                    // Keep this device's toggle in sync when the rider flips
+                    // availability from another session (multi-device).
+                    Dtos.RiderDto current = rider == null ? sessionStore.rider() : rider;
+                    if (current == null || current.isAvailable == isAvailable) {
+                        return;
+                    }
+                    current.isAvailable = isAvailable;
+                    rider = current;
+                    sessionStore.updateRider(current);
                     render();
                 });
             }

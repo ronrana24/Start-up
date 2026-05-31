@@ -3,12 +3,13 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { Rider, User, UserRole } from '@prisma/client';
+import { Prisma, Rider, User, UserRole } from '@prisma/client';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from './strategies/jwt.strategy';
@@ -57,6 +58,7 @@ export type AuthRider = {
   name: string;
   phone: string;
   status: string;
+  isAvailable: boolean;
 };
 
 export type RiderGoogleLoginResult =
@@ -183,6 +185,7 @@ export class AuthService {
       name: rider.name,
       phone: rider.phone,
       status: rider.status,
+      isAvailable: rider.isAvailable,
     };
   }
 
@@ -239,12 +242,12 @@ export class AuthService {
   ): Promise<{
     accessToken: string;
     user: AuthUser;
-    rider: { id: string; name: string; phone: string; status: string };
+    rider: AuthRider;
   }> {
     const phone = this.normalizePhone(rawPhone);
     await this.consumeOtp(phone, code);
 
-    let user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { phone },
       include: { rider: true },
     });
@@ -443,49 +446,50 @@ export class AuthService {
   async loginRiderWithGoogle(idToken: string): Promise<RiderGoogleLoginResult> {
     const profile = await this.googleVerifier.verifyIdToken(idToken);
 
-    const existingByGoogleId = await this.prisma.user.findUnique({
+    // Resolve the account by googleId, falling back to email (same pattern as
+    // `loginWithGoogle`). Link the Google id when matched by email so future
+    // sign-ins hit the googleId path directly.
+    let user = await this.prisma.user.findUnique({
       where: { googleId: profile.googleId },
     });
-    if (existingByGoogleId) {
-      const rider = await this.assertRiderUser(existingByGoogleId);
-      const accessToken = await this.signAccessToken(existingByGoogleId);
-      return {
-        message: 'authenticated',
-        accessToken,
-        user: this.toAuthUser(existingByGoogleId),
-        rider: this.toAuthRider(rider),
-      };
-    }
-
-    const existingByEmail = await this.prisma.user.findUnique({
-      where: { email: profile.email },
-    });
-    if (existingByEmail) {
-      if (
-        existingByEmail.googleId &&
-        existingByEmail.googleId !== profile.googleId
-      ) {
-        throw new ConflictException(
-          'This email is already linked to a different Google account',
-        );
-      }
-      const rider = await this.assertRiderUser(existingByEmail);
-      const linked = await this.prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: {
-          googleId: profile.googleId,
-          name: existingByEmail.name ?? profile.name ?? rider.name,
-        },
+    if (!user) {
+      const existingByEmail = await this.prisma.user.findUnique({
+        where: { email: profile.email },
       });
-      const accessToken = await this.signAccessToken(linked);
+      if (existingByEmail) {
+        if (
+          existingByEmail.googleId &&
+          existingByEmail.googleId !== profile.googleId
+        ) {
+          throw new ConflictException(
+            'This email is already linked to a different Google account',
+          );
+        }
+        user = await this.prisma.user.update({
+          where: { id: existingByEmail.id },
+          data: {
+            googleId: profile.googleId,
+            name: existingByEmail.name ?? profile.name ?? null,
+          },
+        });
+      }
+    }
+
+    if (user?.roles.includes(UserRole.RIDER)) {
+      const rider = await this.assertRiderUser(user);
+      const accessToken = await this.signAccessToken(user);
       return {
         message: 'authenticated',
         accessToken,
-        user: this.toAuthUser(linked),
+        user: this.toAuthUser(user),
         rider: this.toAuthRider(rider),
       };
     }
 
+    // No matching account yet, or the matched user holds only BUYER/ADMIN
+    // roles — hand back a registration token so the Android client switches
+    // to AuthMode.GOOGLE_PHONE and runs the same rider onboarding flow used
+    // for brand-new Google sign-ups.
     const registrationToken = this.signRegistrationToken(profile);
     return {
       message: 'needs_phone',
@@ -522,96 +526,122 @@ export class AuthService {
   ): Promise<{ accessToken: string; user: AuthUser; rider: AuthRider }> {
     const profile = this.verifyRegistrationToken(registrationToken);
     const phone = this.normalizePhone(rawPhone);
+    const fallbackName = profile.name?.trim() || 'Rider';
 
-    await this.consumeOtp(phone, code);
+    // Three independent point lookups — run in parallel so the read phase
+    // costs one DB round-trip instead of three.
+    const [conflictByGoogle, existing] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { googleId: profile.googleId },
+      }),
+      this.prisma.user.findUnique({
+        where: { phone },
+        include: { rider: true },
+      }),
+    ]);
 
-    const conflictByGoogle = await this.prisma.user.findUnique({
-      where: { googleId: profile.googleId },
-    });
-    if (conflictByGoogle && conflictByGoogle.phone !== phone) {
+    // Validate every conflict BEFORE consuming the OTP, so a failed check
+    // never burns the user's only code and forces them to request a new one.
+    if (conflictByGoogle && conflictByGoogle.roles.includes(UserRole.RIDER)) {
       throw new ConflictException(
-        'This Google account is already linked to a different user',
+        'This Google account is already linked to a different rider',
       );
     }
-    const conflictByEmail = await this.prisma.user.findUnique({
-      where: { email: profile.email },
-    });
-    if (conflictByEmail && conflictByEmail.phone !== phone) {
-      throw new ConflictException(
-        'This email is already linked to a different user',
-      );
-    }
-
-    const existing = await this.prisma.user.findUnique({
-      where: { phone },
-      include: { rider: true },
-    });
     if (existing?.rider) {
       throw new ConflictException(
         'A rider account already exists for this mobile number',
       );
     }
+    if (existing?.googleId && existing.googleId !== profile.googleId) {
+      throw new ConflictException(
+        'This phone is already linked to a different Google account',
+      );
+    }
 
-    const riderName = profile.name?.trim() || 'Rider';
-    const result = await this.prisma.$transaction(async (tx) => {
-      if (existing) {
-        if (!existing.roles.includes(UserRole.RIDER)) {
-          throw new UnauthorizedException('Phone is not registered as a rider');
-        }
-        if (existing.googleId && existing.googleId !== profile.googleId) {
-          throw new ConflictException(
-            'This phone is already linked to a different Google account',
-          );
-        }
-        const user = await tx.user.update({
+    // OTP burns only after every static check passes.
+    await this.consumeOtp(phone, code);
+
+    // Both branches return `User & { rider: Rider | null }`. Each is a single
+    // top-level Prisma write — Prisma wraps nested writes in an implicit
+    // transaction, so we replace the explicit `$transaction` + sequential
+    // update/create pair with one round trip per branch.
+    const resolvedName = existing?.name ?? profile.name ?? fallbackName;
+    try {
+      let result;
+      if (conflictByGoogle) {
+        result = await this.prisma.user.update({
+          where: { googleId: profile.googleId, email: profile.email },
+          data: {
+            googleId: profile.googleId,
+            email: profile.email,
+            name: resolvedName,
+            businessName: fallbackName,
+            roles: conflictByGoogle.roles.includes(UserRole.RIDER)
+              ? conflictByGoogle.roles
+              : [...conflictByGoogle.roles, UserRole.RIDER],
+            rider: { create: { name: resolvedName, phone } },
+          },
+          include: { rider: true },
+        });
+      } else if (existing) {
+        result = await this.prisma.user.update({
           where: { id: existing.id },
           data: {
             googleId: profile.googleId,
             email: existing.email ?? profile.email,
-            name: existing.name ?? profile.name ?? riderName,
-            businessName: existing.businessName || riderName,
+            name: resolvedName,
+            businessName: existing.businessName || fallbackName,
+            roles: existing.roles.includes(UserRole.RIDER)
+              ? existing.roles
+              : [...existing.roles, UserRole.RIDER],
+            rider: { create: { name: resolvedName, phone } },
           },
+          include: { rider: true },
         });
-        const rider = await tx.rider.create({
+      } else {
+        result = await this.prisma.user.create({
           data: {
-            userId: user.id,
-            name: user.name ?? riderName,
-            phone: user.phone,
+            phone,
+            email: profile.email,
+            name: resolvedName,
+            googleId: profile.googleId,
+            businessName: fallbackName,
+            roles: [UserRole.RIDER],
+            isOnboardingCompleted: false,
+            rider: { create: { name: fallbackName, phone } },
           },
+          include: { rider: true },
         });
-        return { user, rider };
       }
 
-      const user = await tx.user.create({
-        data: {
-          phone,
-          email: profile.email,
-          name: profile.name ?? riderName,
-          googleId: profile.googleId,
-          businessName: riderName,
-          roles: [UserRole.RIDER],
-          isOnboardingCompleted: false,
-          rider: {
-            create: {
-              name: riderName,
-              phone,
-            },
-          },
-        },
-        include: { rider: true },
-      });
-
-      if (!user.rider) {
-        throw new UnauthorizedException('Phone is not registered as a rider');
+      if (!result.rider) {
+        // The nested create above always populates rider; this guard exists
+        // so TS narrows the response, and so any regression surfaces clearly
+        // instead of bubbling up as a null deref.
+        throw new InternalServerErrorException(
+          'Rider profile failed to create',
+        );
       }
-      return { user, rider: user.rider };
-    });
 
-    const accessToken = await this.signAccessToken(result.user);
-    return {
-      accessToken,
-      user: this.toAuthUser(result.user),
-      rider: this.toAuthRider(result.rider),
-    };
+      const accessToken = await this.signAccessToken(result);
+      return {
+        accessToken,
+        user: this.toAuthUser(result),
+        rider: this.toAuthRider(result.rider),
+      };
+    } catch (e) {
+      // Translate races on the unique constraints (phone / email / googleId /
+      // rider.userId) into a clean 409 — without this they'd surface as 500s
+      // when another concurrent request beats us to the same record.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'This account was just claimed by another sign-in. Please sign in again.',
+        );
+      }
+      throw e;
+    }
   }
 }

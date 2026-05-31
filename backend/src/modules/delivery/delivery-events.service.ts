@@ -83,6 +83,13 @@ export class DeliveryEventsService {
     riderId: string;
     available: boolean;
     reason: string;
+    /**
+     * The rider's shift toggle (rider-owned), distinct from `available` which
+     * reflects offer-eligibility (`isAvailable && status === IDLE`) and drives
+     * room membership. Only set when the toggle itself changed, so other events
+     * (claim/terminal/reassign) leave the client's known toggle state intact.
+     */
+    isAvailable?: boolean;
   }) {
     this.gateway.setRiderAvailableRoom(input.riderId, input.available);
     this.gateway.emitToRooms(
@@ -91,6 +98,9 @@ export class DeliveryEventsService {
       {
         riderId: input.riderId,
         available: input.available,
+        ...(input.isAvailable !== undefined
+          ? { isAvailable: input.isAvailable }
+          : {}),
         reason: input.reason,
         at: new Date().toISOString(),
       },

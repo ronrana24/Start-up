@@ -109,9 +109,33 @@ public final class DeliverySocketManager {
             // Location pings are high-frequency and already originate from this rider.
             // Refetching active orders here creates a location -> socket -> active-list loop.
         });
-        boundSocket.on("rider.availability_changed", args -> {
-            if (events != null) events.onOrderChanged();
-        });
+        boundSocket.on("rider.availability_changed", this::emitAvailabilityChanged);
+    }
+
+    private void emitAvailabilityChanged(Object... args) {
+        if (events == null) {
+            return;
+        }
+        Boolean isAvailable = parseIsAvailable(args);
+        if (isAvailable != null) {
+            events.onRiderAvailabilityChanged(isAvailable);
+        }
+        events.onOrderChanged();
+    }
+
+    private Boolean parseIsAvailable(Object[] args) {
+        if (args == null || args.length == 0 || args[0] == null) {
+            return null;
+        }
+        try {
+            JSONObject payload = new JSONObject(args[0].toString());
+            if (payload.has("isAvailable") && !payload.isNull("isAvailable")) {
+                return payload.getBoolean("isAvailable");
+            }
+        } catch (JSONException ignored) {
+            // Availability toggle not present in this payload; ignore.
+        }
+        return null;
     }
 
     private void emitState(String state) {
@@ -151,5 +175,13 @@ public final class DeliverySocketManager {
         void onOrderChanged();
 
         void onConnectionState(String state);
+
+        /**
+         * Fired when the backend reports a change to this rider's availability
+         * toggle (multi-device sync). Default no-op so existing implementations
+         * remain valid. {@code isAvailable} is null when the payload omits it.
+         */
+        default void onRiderAvailabilityChanged(Boolean isAvailable) {
+        }
     }
 }

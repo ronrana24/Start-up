@@ -88,7 +88,9 @@ export class DeliveryGateway
       if (rider) {
         client.data.riderId = rider.id;
         await client.join(`rider:${rider.id}`);
-        if (rider.status === 'IDLE') {
+        // Eligible for new-order offers only while on-shift (isAvailable) and
+        // not already on a delivery (IDLE). Mirrors RidersService eligibility.
+        if (rider.isAvailable && rider.status === 'IDLE') {
           await client.join('available-riders');
         }
         this.emitToRooms(['admin'], 'rider.presence_changed', {

@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -121,6 +122,14 @@ public final class Dtos {
         }
     }
 
+    public static final class PatchAvailabilityRequest {
+        public final boolean isAvailable;
+
+        public PatchAvailabilityRequest(boolean isAvailable) {
+            this.isAvailable = isAvailable;
+        }
+    }
+
     public static final class RecordCollectionRequest {
         public final String method;
         public final String amount;
@@ -182,7 +191,7 @@ public final class Dtos {
         public String email;
         public String name;
         public String businessName;
-        public String role;
+        public String[] roles;
         public boolean isOnboardingCompleted;
     }
 
@@ -191,6 +200,7 @@ public final class Dtos {
         public String name;
         public String phone;
         public String status;
+        public boolean isAvailable = true;
         public JsonElement currentLocation;
     }
 
@@ -404,6 +414,38 @@ public final class Dtos {
     public static boolean isTerminal(OrderDto order) {
         return order != null && ("DELIVERED".equals(order.status) || "CANCELLED".equals(order.status));
     }
+
+    public static boolean isPriority(OrderDto order) {
+        return order != null && order.deliveryType != null
+                && "PRIORITY".equalsIgnoreCase(order.deliveryType.trim());
+    }
+
+    private static long createdAtEpochSeconds(OrderDto order) {
+        if (order == null || order.createdAt == null) {
+            return Long.MAX_VALUE;
+        }
+        try {
+            return Instant.parse(order.createdAt).getEpochSecond();
+        } catch (RuntimeException ignored) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /**
+     * Client-side fallback that mirrors the backend ordering
+     * ({@code [deliveryType desc, createdAt asc]}): priority orders first, then
+     * oldest first. Keeps priority-first ordering stable when socket pushes and
+     * paginated results are merged on the client.
+     */
+    public static final Comparator<OrderDto> OFFER_PRIORITY_COMPARATOR =
+            (a, b) -> {
+                boolean pa = isPriority(a);
+                boolean pb = isPriority(b);
+                if (pa != pb) {
+                    return pa ? -1 : 1;
+                }
+                return Long.compare(createdAtEpochSeconds(a), createdAtEpochSeconds(b));
+            };
 
     public static String nextRiderStatus(OrderDto order) {
         if (order == null || order.status == null) {

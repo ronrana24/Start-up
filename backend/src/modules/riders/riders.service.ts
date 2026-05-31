@@ -93,11 +93,37 @@ export class RidersService {
     return this.riderForUser(user);
   }
 
+  /**
+   * Rider-initiated shift toggle. Persists the choice (DB is the source of
+   * truth across restarts/logout/devices) and broadcasts it so the gateway
+   * room, admin dashboards, and the rider's other sessions stay in sync.
+   */
+  async setAvailability(user: User, isAvailable: boolean) {
+    const existing = await this.riderForUser(user);
+    const rider = await this.prisma.rider.update({
+      where: { id: existing.id },
+      data: { isAvailable },
+    });
+    const eligible = rider.isAvailable && rider.status === RiderStatus.IDLE;
+    this.deliveryEvents.riderAvailabilityChanged({
+      riderId: rider.id,
+      available: eligible,
+      isAvailable: rider.isAvailable,
+      reason: 'rider_toggled',
+    });
+    return rider;
+  }
+
   async availableOrders(
     user: User,
     params: { page: number; pageSize: number },
   ) {
-    await this.riderForUser(user);
+    const rider = await this.riderForUser(user);
+    // Offline riders see an empty queue — keeps refresh/background-sync
+    // consistent with the hidden queue on the client.
+    if (!rider.isAvailable) {
+      return { items: [], total: 0, page: params.page, pageSize: params.pageSize };
+    }
     const where: Prisma.OrderWhereInput = {
       riderId: null,
       status: { in: availableOrderStatuses },
@@ -261,6 +287,10 @@ export class RidersService {
 
   async claimOrder(user: User, orderId: string) {
     const rider = await this.riderForUser(user);
+    // Defends against a stale cached offer being accepted after going offline.
+    if (!rider.isAvailable) {
+      throw new BadRequestException('Go online to accept new orders');
+    }
 
     await this.prisma.$transaction(
       async (tx) => {

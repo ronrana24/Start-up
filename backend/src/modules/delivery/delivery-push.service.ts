@@ -58,6 +58,9 @@ export class DeliveryPushService {
     const devices = await this.prisma.riderDevice.findMany({
       where: {
         isActive: true,
+        // Skip riders who have toggled themselves offline — they must not
+        // receive new-order pushes.
+        rider: { isAvailable: true },
       },
       select: { pushToken: true, platform: true },
     });

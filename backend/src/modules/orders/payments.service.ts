@@ -288,7 +288,7 @@ export class PaymentsService {
         data: {
           eventId,
           eventType,
-          payload: payload as Prisma.InputJsonValue,
+          payload,
         },
       })
       .catch(() => null);

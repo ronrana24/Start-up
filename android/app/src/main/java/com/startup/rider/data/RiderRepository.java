@@ -176,6 +176,23 @@ public final class RiderRepository {
         enqueue(api.patchLocation(new Dtos.PatchLocationRequest(lat, lng, heading)), result);
     }
 
+    public void setAvailability(boolean isAvailable, Result<Dtos.RiderDto> result) {
+        enqueue(api.patchAvailability(new Dtos.PatchAvailabilityRequest(isAvailable)), new Result<Dtos.RiderDto>() {
+            @Override
+            public void onSuccess(Dtos.RiderDto value) {
+                if (value != null) {
+                    sessionStore.updateRider(value);
+                }
+                result.onSuccess(value);
+            }
+
+            @Override
+            public void onError(ApiFailure failure) {
+                result.onError(failure);
+            }
+        });
+    }
+
     public void logout(Result<Object> result) {
         api.logout().enqueue(new retrofit2.Callback<Dtos.Envelope<Object>>() {
             @Override

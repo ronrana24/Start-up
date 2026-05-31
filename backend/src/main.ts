@@ -3,8 +3,6 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { raw } from 'express';
-import { mkdirSync } from 'fs';
-import { join } from 'path';
 import { AppModule } from './app.module';
 import { validationDetailsFromErrors } from './common/errors/api-error';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
@@ -16,9 +14,6 @@ async function bootstrap() {
     logger: new Logger(bootstrap.name),
   });
   const config = Configuration();
-  const uploadsDir = join(process.cwd(), 'uploads');
-  mkdirSync(uploadsDir, { recursive: true });
-  app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
   app.enableCors({
     origin: config.corsOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],

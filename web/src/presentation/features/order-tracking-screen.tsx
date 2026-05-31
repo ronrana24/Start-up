@@ -1,15 +1,15 @@
 "use client";
 
-import { DownloadOrderInvoiceButton } from "@presentation/components/order/download-order-invoice-button";
 import { LiveDeliveryMap } from "@presentation/components/delivery/live-delivery-map";
 import type { Order } from "@domain/order";
+import { OrderBillCard } from "@presentation/components/order/order-bill-card";
+import { OrderItemsCard } from "@presentation/components/order/order-items-card";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Card } from "@presentation/components/ui/card";
 import { LinkButton } from "@presentation/components/ui/link-button";
 import { useRequireAuth } from "@presentation/hooks/use-require-auth";
 import { useOrderTrackingQuery } from "@presentation/hooks/use-order-tracking-query";
 import { createDeliverySocket } from "@presentation/lib/delivery-realtime";
-import { formatMoney } from "@presentation/lib/format-money";
 import { queryKeys } from "@presentation/query-keys";
 import { useAuthStore } from "@presentation/state/auth-store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -205,19 +205,8 @@ export function OrderTrackingScreen() {
           ))}
         </ol>
       </Card>
-      <Card>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-secondary">Order total</span>
-          <span className="font-semibold text-heading">
-            {formatMoney(data.totalCents)}
-          </span>
-        </div>
-        <DownloadOrderInvoiceButton
-          order={data}
-          fullWidth
-          className="mt-4 min-h-10 rounded-lg"
-        />
-      </Card>
+      <OrderItemsCard order={data} />
+      <OrderBillCard order={data} />
       <LinkButton href="/orders/history" variant="secondary" fullWidth>
         Order history
       </LinkButton>

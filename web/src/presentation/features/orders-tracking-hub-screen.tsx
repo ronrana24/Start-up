@@ -7,6 +7,8 @@ import {
   type LiveRouteMetrics,
   riderCoordinateLabel,
 } from "@presentation/components/delivery/live-route-map";
+import { OrderBillCard } from "@presentation/components/order/order-bill-card";
+import { OrderItemsCard } from "@presentation/components/order/order-items-card";
 import { MobilePageHeader } from "@presentation/components/shop/mobile-page-header";
 import { Card } from "@presentation/components/ui/card";
 import { LinkButton } from "@presentation/components/ui/link-button";
@@ -460,6 +462,8 @@ function TrackingDetails({
 
         <RiderCard order={order} />
         <TrackingStatus order={order} dataUpdatedAt={dataUpdatedAt} />
+        <OrderItemsCard order={order} />
+        <OrderBillCard order={order} />
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, ProductCategory, User, UserRole } from '@prisma/client';
+import { Prisma, User, UserRole } from '@prisma/client';
 import { InventoryService } from '../inventory/inventory.service';
 import {
   createClient,
@@ -198,7 +198,7 @@ export class ProductsService {
       where.isPublic = true;
     }
     if (query.category) {
-      where.category = query.category as ProductCategory;
+      where.category = query.category;
     }
     if (query.search) {
       where.name = { contains: query.search, mode: 'insensitive' };
@@ -271,7 +271,7 @@ export class ProductsService {
           costPrice: new Prisma.Decimal(dto.initialBatch.costPrice),
           sellingPrice: new Prisma.Decimal(dto.initialBatch.sellingPrice),
           quantity: dto.initialBatch.quantity,
-          bulkTiers: initialBatchTiers as unknown as Prisma.InputJsonValue,
+          bulkTiers: initialBatchTiers,
         },
       });
       return tx.product.findUnique({
