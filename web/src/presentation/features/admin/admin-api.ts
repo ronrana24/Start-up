@@ -52,7 +52,7 @@ function unwrapBody<T>(body: T | ApiEnvelope<T>): T {
 }
 
 function apiBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL as string).trim();
+  return (process.env.NEXT_PUBLIC_API_BASE_URL || "").trim();
 }
 
 function productImageSupabaseClient(): SupabaseClient {

@@ -8,6 +8,7 @@ import { formatMoney } from "@presentation/lib/format-money";
 import { productPath } from "@presentation/lib/product-url";
 import Image from "next/image";
 import Link from "next/link";
+import { HomeMap } from "@presentation/components/home-map";
 import {
   useCallback,
   useEffect,
@@ -550,14 +551,7 @@ export function HomeLanding() {
           </div>
         </div>
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-default bg-primary-light shadow-lg lg:aspect-square lg:max-h-[min(28rem,50vh)]">
-          <Image
-            src="/placeholder-product.svg"
-            alt=""
-            fill
-            className="object-cover"
-            sizes="(min-width: 1024px) 50vw, 100vw"
-            priority
-          />
+          <HomeMap />
         </div>
       </section>
 
