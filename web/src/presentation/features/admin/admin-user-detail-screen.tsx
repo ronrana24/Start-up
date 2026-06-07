@@ -16,6 +16,7 @@ import {
 } from "./admin-api";
 import { formatDateTime, formatInr, statusLabel } from "./admin-format";
 import { useAdminQuery } from "./use-admin-query";
+import { AdminMapViewer } from "@presentation/components/delivery/admin-map-viewer";
 
 const orderStatusStyles: Record<OrderStatus, string> = {
   PLACED: "border-catalog-blue-light bg-catalog-blue-light text-catalog-blue",
@@ -796,9 +797,16 @@ export function AdminUserDetailScreen() {
                       {address.pincode}
                     </p>
                     {pinnedAddressLocation(address) ? (
-                      <p className="mt-2 font-mono text-xs text-catalog-green">
-                        {pinnedAddressLocation(address)}
-                      </p>
+                      <div className="mt-4 space-y-2">
+                        <p className="font-mono text-xs font-semibold text-catalog-green">
+                          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-catalog-green" />
+                          Pinned: {pinnedAddressLocation(address)}
+                        </p>
+                        <AdminMapViewer 
+                          latitude={address.latitude!} 
+                          longitude={address.longitude!} 
+                        />
+                      </div>
                     ) : (
                       <p className="mt-2 text-xs font-bold text-amber-700">
                         No pinned delivery coordinates

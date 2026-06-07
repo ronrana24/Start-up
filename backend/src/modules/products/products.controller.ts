@@ -12,6 +12,7 @@ import {
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -24,11 +25,13 @@ import { ProductsService } from './products.service';
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
+  @Public()
   @Get()
   list(@CurrentUser() user: User, @Query() query: QueryProductsDto) {
     return this.products.list(query, user);
   }
 
+  @Public()
   @Get(':id')
   getOne(
     @CurrentUser() user: User,

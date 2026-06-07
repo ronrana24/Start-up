@@ -4,89 +4,17 @@ import type { Coordinates, Order, OrderDeliveryAddress } from "@domain/order";
 import { cn } from "@presentation/lib/cn";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type LatLngLiteral = { lat: number; lng: number };
-type GoogleLatLng = { lat: () => number; lng: () => number };
-type GoogleMap = {
-  panTo: (position: LatLngLiteral) => void;
-  fitBounds: (bounds: unknown, padding?: number) => void;
-};
-type GoogleAdvancedMarker = HTMLElement & {
-  map: GoogleMap | null;
-  position: LatLngLiteral | null;
-};
-type GoogleDirectionsRenderer = {
-  setDirections: (result: GoogleDirectionsResult) => void;
-  setMap: (map: GoogleMap | null) => void;
-};
-type GoogleDirectionsService = {
-  route: (
-    request: Record<string, unknown>,
-    callback: (result: GoogleDirectionsResult | null, status: string) => void,
-  ) => void;
-};
-type GoogleGeocoderResult = {
-  geometry?: { location?: GoogleLatLng };
-};
-type GoogleGeocoder = {
-  geocode: (
-    request: { address: string },
-    callback: (results: GoogleGeocoderResult[] | null, status: string) => void,
-  ) => void;
-};
-type GooglePolyline = {
-  setMap: (map: GoogleMap | null) => void;
-  setPath: (path: LatLngLiteral[]) => void;
-};
-type GoogleDirectionsLeg = {
-  distance?: { value?: number };
-  duration?: { value?: number };
-};
-type GoogleDirectionsResult = {
-  routes: Array<{ legs?: GoogleDirectionsLeg[] }>;
-};
-type GoogleMapsApi = {
-  maps: {
-    DirectionsRenderer: new (
-      options: Record<string, unknown>,
-    ) => GoogleDirectionsRenderer;
-    DirectionsService: new () => GoogleDirectionsService;
-    Geocoder: new () => GoogleGeocoder;
-    LatLngBounds: new () => { extend: (position: LatLngLiteral) => void };
-    Map: new (
-      element: HTMLElement,
-      options: Record<string, unknown>,
-    ) => GoogleMap;
-    marker: {
-      AdvancedMarkerElement: new (
-        options: Record<string, unknown>,
-      ) => GoogleAdvancedMarker;
-    };
-    Polyline: new (options: Record<string, unknown>) => GooglePolyline;
-    TravelMode: {
-      DRIVING: unknown;
-    };
-  };
-};
-
-type GoogleMapsWindow = Window & {
-  google?: GoogleMapsApi;
-  __groveGoogleMapsReady?: () => void;
-  __groveGoogleMapsPromise?: Promise<GoogleMapsApi>;
-};
-
 export type LiveRouteMetrics = {
   distanceText: string;
   durationText: string;
   distanceMeters: number;
   durationSeconds: number;
-  source: "google" | "estimated";
+  source: "mappls" | "estimated";
   updatedAt: number;
 };
 
 const DEFAULT_CENTER = { lat: 30.6708488, lng: 76.8277375 };
-const MAP_SCRIPT_ID = "grove-google-maps-js";
-const MAP_CALLBACK_NAME = "__groveGoogleMapsReady";
-const FALLBACK_MAP_ID = "DEMO_MAP_ID";
+const MAP_SCRIPT_ID = "mappls-map-js";
 const ROUTE_DEBOUNCE_MS = 350;
 
 function addressLabel(address?: OrderDeliveryAddress | null): string {
@@ -113,28 +41,15 @@ export function riderCoordinateLabel(location?: Coordinates | null): string {
 }
 
 export function deliveryDirectionsUrl(order: Order): string {
-  const rider = order.rider?.currentLocation;
   const destination = order.deliveryAddress?.coordinates
     ? `${order.deliveryAddress.coordinates.lat},${order.deliveryAddress.coordinates.lng}`
     : destinationAddress(order);
-  const params = new URLSearchParams({
-    api: "1",
-    destination,
-    travelmode: "driving",
-  });
-  if (rider) {
-    params.set("origin", `${rider.lat},${rider.lng}`);
-  }
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+  return `https://mappls.com/dir?daddr=${encodeURIComponent(destination)}`;
 }
 
 function normalizedHeading(heading?: number | null): number | null {
   if (typeof heading !== "number" || !Number.isFinite(heading)) return null;
   return ((heading % 360) + 360) % 360;
-}
-
-function asLatLng(location: Coordinates): LatLngLiteral {
-  return { lat: location.lat, lng: location.lng };
 }
 
 function haversineMeters(a: Coordinates, b: Coordinates): number {
@@ -183,56 +98,42 @@ function estimatedMetrics(
   };
 }
 
-function loadGoogleMaps(apiKey: string): Promise<GoogleMapsApi> {
-  const win = window as GoogleMapsWindow;
-  if (win.google?.maps) {
-    return Promise.resolve(win.google);
-  }
-  if (win.__groveGoogleMapsPromise) {
-    return win.__groveGoogleMapsPromise;
-  }
+function loadMapplsSDK(token: string): Promise<any> {
+  const win = window as any;
+  if (win.mappls) return Promise.resolve(win.mappls);
+  if (win.__mapplsPromise) return win.__mapplsPromise;
 
-  win.__groveGoogleMapsPromise = new Promise((resolve, reject) => {
-    const existing = document.getElementById(
-      MAP_SCRIPT_ID,
-    ) as HTMLScriptElement | null;
+  win.__mapplsPromise = new Promise((resolve, reject) => {
+    const existing = document.getElementById(MAP_SCRIPT_ID);
     if (existing) {
-      existing.addEventListener("load", () => resolve(win.google!));
-      existing.addEventListener("error", () =>
-        reject(new Error("Google Maps could not load")),
-      );
+      existing.addEventListener("load", () => {
+        setTimeout(() => resolve(win.mappls), 500);
+      });
       return;
     }
 
-    win.__groveGoogleMapsReady = () => {
-      resolve(win.google!);
-      delete win.__groveGoogleMapsReady;
-    };
-
-    const params = new URLSearchParams({
-      key: apiKey,
-      callback: MAP_CALLBACK_NAME,
-      libraries: "places,marker",
-      loading: "async",
-      v: "weekly",
-    });
-
     const script = document.createElement("script");
     script.id = MAP_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+    script.src = `https://apis.mappls.com/advancedmaps/api/${token}/map_sdk?layer=vector&v=3.0`;
     script.async = true;
     script.defer = true;
-    script.onerror = () => reject(new Error("Google Maps could not load"));
+    script.onload = () => {
+      const plugins = document.createElement("script");
+      plugins.src = `https://apis.mappls.com/advancedmaps/api/${token}/map_sdk_plugins?v=3.0&libraries=direction,search`;
+      plugins.async = true;
+      plugins.defer = true;
+      plugins.onload = () => resolve(win.mappls);
+      plugins.onerror = () => reject(new Error("Mappls Plugins could not load"));
+      document.head.appendChild(plugins);
+    };
+    script.onerror = () => reject(new Error("Mappls Maps could not load"));
     document.head.appendChild(script);
   });
 
-  return win.__groveGoogleMapsPromise;
+  return win.__mapplsPromise;
 }
 
-function applyStyles(
-  element: HTMLElement,
-  styles: Partial<CSSStyleDeclaration>,
-) {
+function applyStyles(element: HTMLElement, styles: Partial<CSSStyleDeclaration>) {
   Object.assign(element.style, styles);
 }
 
@@ -304,44 +205,6 @@ function destinationMarkerContent(): HTMLElement {
   return wrapper;
 }
 
-function routeMetricsFromResult(
-  result: GoogleDirectionsResult,
-): LiveRouteMetrics | null {
-  const legs = result.routes[0]?.legs ?? [];
-  if (!legs.length) return null;
-
-  const distanceMeters = legs.reduce(
-    (sum: number, leg) => sum + (leg.distance?.value ?? 0),
-    0,
-  );
-  const durationSeconds = legs.reduce(
-    (sum: number, leg) => sum + (leg.duration?.value ?? 0),
-    0,
-  );
-  if (distanceMeters <= 0 || durationSeconds <= 0) return null;
-
-  return {
-    distanceText: formatDistance(distanceMeters),
-    durationText: formatDuration(durationSeconds),
-    distanceMeters,
-    durationSeconds,
-    source: "google",
-    updatedAt: Date.now(),
-  };
-}
-
-function fitTwoPoints(
-  googleMaps: GoogleMapsApi,
-  map: GoogleMap,
-  rider: Coordinates,
-  destination: Coordinates,
-) {
-  const bounds = new googleMaps.maps.LatLngBounds();
-  bounds.extend(asLatLng(rider));
-  bounds.extend(asLatLng(destination));
-  map.fitBounds(bounds, 64);
-}
-
 export function LiveRouteMap({
   order,
   className,
@@ -353,11 +216,11 @@ export function LiveRouteMap({
   mapClassName?: string;
   onMetrics?: (metrics: LiveRouteMetrics | null) => void;
 }) {
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
+  const token = process.env.NEXT_PUBLIC_MAPPLS_TOKEN?.trim();
   const rider = order.rider?.currentLocation ?? null;
   const address = useMemo(() => destinationAddress(order), [order]);
   const providedDestination = order.deliveryAddress?.coordinates ?? null;
-  const [googleMaps, setGoogleMaps] = useState<GoogleMapsApi | null>(null);
+  const [mapplsApi, setMapplsApi] = useState<any>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [routeMessage, setRouteMessage] = useState<string | null>(null);
   const [geocodedDestination, setGeocodedDestination] = useState<{
@@ -369,155 +232,112 @@ export function LiveRouteMap({
     (geocodedDestination?.address === address
       ? geocodedDestination.coordinates
       : null);
-  const missingApiKey = !apiKey;
-  const effectiveLoadError = missingApiKey
-    ? "Google Maps API key is missing."
-    : loadError;
+  const effectiveLoadError = !token ? "Mappls API token is missing." : loadError;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<GoogleMap | null>(null);
-  const riderMarkerRef = useRef<GoogleAdvancedMarker | null>(null);
-  const destinationMarkerRef = useRef<GoogleAdvancedMarker | null>(null);
-  const directionsRendererRef = useRef<GoogleDirectionsRenderer | null>(null);
-  const directionsServiceRef = useRef<GoogleDirectionsService | null>(null);
-  const geocoderRef = useRef<GoogleGeocoder | null>(null);
-  const fallbackPolylineRef = useRef<GooglePolyline | null>(null);
+  const mapRef = useRef<any>(null);
+  const riderMarkerRef = useRef<any>(null);
+  const destinationMarkerRef = useRef<any>(null);
+  const directionPluginRef = useRef<any>(null);
   const routeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    if (!apiKey) {
-      return;
-    }
-
+    if (!token) return;
     let cancelled = false;
-    loadGoogleMaps(apiKey)
+    loadMapplsSDK(token)
       .then((api) => {
-        if (!cancelled) setGoogleMaps(api);
+        if (!cancelled) setMapplsApi(api);
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Google Maps could not load.");
+        if (!cancelled) setLoadError("Mappls Maps could not load.");
       });
-
     return () => {
       cancelled = true;
     };
-  }, [apiKey]);
+  }, [token]);
 
   useEffect(() => {
-    if (!googleMaps || !containerRef.current || mapRef.current) return;
+    if (!mapplsApi || !containerRef.current || mapRef.current) return;
 
     const initialCenter = rider ?? destination ?? DEFAULT_CENTER;
-    const map = new googleMaps.maps.Map(containerRef.current, {
-      center: asLatLng(initialCenter),
+    const map = new mapplsApi.Map("live-route-map-container", {
+      center: [initialCenter.lng, initialCenter.lat],
       zoom: rider ? 15 : 13,
-      mapId:
-        process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID?.trim() || FALLBACK_MAP_ID,
-      mapTypeControl: false,
-      streetViewControl: false,
       fullscreenControl: true,
-      clickableIcons: false,
-      gestureHandling: "greedy",
     });
-
     mapRef.current = map;
-    directionsServiceRef.current = new googleMaps.maps.DirectionsService();
-    geocoderRef.current = new googleMaps.maps.Geocoder();
-    directionsRendererRef.current = new googleMaps.maps.DirectionsRenderer({
-      map,
-      preserveViewport: false,
-      suppressMarkers: true,
-      polylineOptions: {
-        strokeColor: "#0f5132",
-        strokeOpacity: 0.95,
-        strokeWeight: 6,
-      },
-    });
-  }, [destination, googleMaps, rider]);
+  }, [destination, mapplsApi, rider]);
 
   useEffect(() => {
-    if (!googleMaps || !geocoderRef.current || destination) return;
+    if (!mapplsApi || destination) return;
 
     let cancelled = false;
-    geocoderRef.current.geocode(
-      { address },
-      (results: GoogleGeocoderResult[] | null, status: string) => {
+    // Simple geocode equivalent using search
+    mapplsApi.search({
+      keyword: address,
+      callback: (results: any) => {
         if (cancelled) return;
-        const location = results?.[0]?.geometry?.location;
-        if (status === "OK" && location) {
+        if (results && results.length > 0 && results[0].latitude) {
           setGeocodedDestination({
             address,
-            coordinates: { lat: location.lat(), lng: location.lng() },
+            coordinates: { lat: Number(results[0].latitude), lng: Number(results[0].longitude) },
           });
           setRouteMessage(null);
         } else {
           setGeocodedDestination({ address, coordinates: null });
           setRouteMessage("Delivery address could not be located on the map.");
         }
-      },
-    );
+      }
+    });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [address, destination, googleMaps]);
+    return () => { cancelled = true; };
+  }, [address, destination, mapplsApi]);
 
   useEffect(() => {
-    if (!googleMaps || !mapRef.current) return;
+    if (!mapplsApi || !mapRef.current) return;
     const map = mapRef.current;
 
     if (rider) {
-      const position = asLatLng(rider);
       if (!riderMarkerRef.current) {
-        riderMarkerRef.current =
-          new googleMaps.maps.marker.AdvancedMarkerElement({
-            map,
-            position,
-            title: "Rider live location",
-            zIndex: 20,
-          });
-        riderMarkerRef.current.replaceChildren(
-          riderMarkerContent(rider.heading),
-        );
+        riderMarkerRef.current = new mapplsApi.Marker({
+          element: riderMarkerContent(rider.heading),
+          position: [rider.lng, rider.lat],
+        }).addTo(map);
       } else {
-        riderMarkerRef.current.map = map;
-        riderMarkerRef.current.position = position;
-        riderMarkerRef.current.replaceChildren(
-          riderMarkerContent(rider.heading),
-        );
+        // Remove old marker to update heading properly
+        riderMarkerRef.current.remove();
+        riderMarkerRef.current = new mapplsApi.Marker({
+          element: riderMarkerContent(rider.heading),
+          position: [rider.lng, rider.lat],
+        }).addTo(map);
       }
     } else {
       if (riderMarkerRef.current) {
-        riderMarkerRef.current.map = null;
+        riderMarkerRef.current.remove();
+        riderMarkerRef.current = null;
       }
     }
 
     if (destination) {
-      const position = asLatLng(destination);
       if (!destinationMarkerRef.current) {
-        destinationMarkerRef.current =
-          new googleMaps.maps.marker.AdvancedMarkerElement({
-            map,
-            position,
-            title: "Delivery location",
-            zIndex: 10,
-          });
-        destinationMarkerRef.current.replaceChildren(
-          destinationMarkerContent(),
-        );
+        destinationMarkerRef.current = new mapplsApi.Marker({
+          element: destinationMarkerContent(),
+          position: [destination.lng, destination.lat],
+        }).addTo(map);
       } else {
-        destinationMarkerRef.current.map = map;
-        destinationMarkerRef.current.position = position;
+        destinationMarkerRef.current.setLngLat([destination.lng, destination.lat]);
       }
     } else {
       if (destinationMarkerRef.current) {
-        destinationMarkerRef.current.map = null;
+        destinationMarkerRef.current.remove();
+        destinationMarkerRef.current = null;
       }
     }
 
-    if (rider && !destination) map.panTo(asLatLng(rider));
-    if (!rider && destination) map.panTo(asLatLng(destination));
-  }, [destination, googleMaps, rider]);
+    if (rider && !destination) map.panTo([rider.lng, rider.lat]);
+    if (!rider && destination) map.panTo([destination.lng, destination.lat]);
+  }, [destination, mapplsApi, rider]);
 
   useEffect(() => {
     if (routeTimerRef.current) {
@@ -525,7 +345,7 @@ export function LiveRouteMap({
       routeTimerRef.current = null;
     }
 
-    if (!googleMaps || !mapRef.current || !rider || !destination) {
+    if (!mapplsApi || !mapRef.current || !rider || !destination) {
       onMetrics?.(null);
       return;
     }
@@ -536,53 +356,40 @@ export function LiveRouteMap({
 
     routeTimerRef.current = setTimeout(() => {
       const requestId = ++requestSeqRef.current;
-      directionsServiceRef.current?.route(
-        {
-          origin: asLatLng(rider),
-          destination: asLatLng(destination),
-          travelMode: googleMaps.maps.TravelMode.DRIVING,
-          drivingOptions: {
-            departureTime: new Date(),
-          },
-        },
-        (result: GoogleDirectionsResult | null, status: string) => {
+      
+      if (directionPluginRef.current) {
+        directionPluginRef.current.remove();
+      }
+
+      mapplsApi.direction({
+        map: mapRef.current,
+        start: `${rider.lat},${rider.lng}`,
+        end: `${destination.lat},${destination.lng}`,
+        profile: "driving",
+        callback: (data: any) => {
           if (requestId !== requestSeqRef.current) return;
-
-          if (status === "OK" && result) {
-            fallbackPolylineRef.current?.setMap(null);
-            fallbackPolylineRef.current = null;
-            directionsRendererRef.current?.setDirections(result);
-            const metrics = routeMetricsFromResult(result);
-            onMetrics?.(metrics ?? estimated);
-            setRouteMessage(null);
-            return;
-          }
-
-          directionsRendererRef.current?.setMap(null);
-          directionsRendererRef.current?.setMap(mapRef.current);
-          if (!fallbackPolylineRef.current) {
-            fallbackPolylineRef.current = new googleMaps.maps.Polyline({
-              map: mapRef.current,
-              path: [asLatLng(rider), asLatLng(destination)],
-              geodesic: true,
-              strokeColor: "#0f5132",
-              strokeOpacity: 0.75,
-              strokeWeight: 4,
+          if (data && data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            const distanceMeters = route.distance;
+            const durationSeconds = route.duration;
+            onMetrics?.({
+              distanceText: formatDistance(distanceMeters),
+              durationText: formatDuration(durationSeconds),
+              distanceMeters,
+              durationSeconds,
+              source: "mappls",
+              updatedAt: Date.now(),
             });
+            setRouteMessage(null);
           } else {
-            fallbackPolylineRef.current.setMap(mapRef.current);
-            fallbackPolylineRef.current.setPath([
-              asLatLng(rider),
-              asLatLng(destination),
-            ]);
+            onMetrics?.(estimated);
+            setRouteMessage("Showing estimated distance; live route is unavailable.");
           }
-          fitTwoPoints(googleMaps, mapRef.current!, rider, destination);
-          onMetrics?.(estimated);
-          setRouteMessage(
-            "Showing estimated distance; live route is unavailable.",
-          );
-        },
-      );
+        }
+      }, function(plugin: any) {
+        directionPluginRef.current = plugin;
+      });
+
     }, ROUTE_DEBOUNCE_MS);
 
     return () => {
@@ -591,7 +398,7 @@ export function LiveRouteMap({
         routeTimerRef.current = null;
       }
     };
-  }, [destination, googleMaps, onMetrics, rider]);
+  }, [destination, mapplsApi, onMetrics, rider]);
 
   const waitingMessage = !rider
     ? "Waiting for rider GPS"
@@ -600,13 +407,8 @@ export function LiveRouteMap({
       : routeMessage;
 
   return (
-    <div
-      className={cn("relative overflow-hidden bg-catalog-surface", className)}
-    >
-      <div
-        ref={containerRef}
-        className={cn("h-full min-h-72 w-full", mapClassName)}
-      />
+    <div className={cn("relative overflow-hidden bg-catalog-surface", className)}>
+      <div id="live-route-map-container" ref={containerRef} className={cn("h-full min-h-72 w-full", mapClassName)} />
 
       {effectiveLoadError ? (
         <div className="absolute inset-0 flex flex-col justify-center gap-3 bg-secondary-bg px-4">
@@ -617,23 +419,22 @@ export function LiveRouteMap({
             {effectiveLoadError}
           </p>
           <p className="text-sm text-secondary">
-            Live route, ETA, and map-pinned rider movement need the Google Maps
-            JavaScript API key.
+            Live route, ETA, and map-pinned rider movement need the Mappls Map Token.
           </p>
         </div>
       ) : null}
 
-      {apiKey && !effectiveLoadError && !googleMaps ? (
+      {token && !effectiveLoadError && !mapplsApi ? (
         <div className="absolute inset-0 animate-pulse bg-secondary-bg" />
       ) : null}
 
-      {apiKey && !effectiveLoadError && waitingMessage ? (
+      {token && !effectiveLoadError && waitingMessage ? (
         <div className="pointer-events-none absolute left-3 top-3 max-w-[calc(100%-1.5rem)] rounded-lg border border-white/70 bg-white/90 px-3 py-2 text-[11px] font-black text-heading shadow-sm backdrop-blur">
           {waitingMessage}
         </div>
       ) : null}
 
-      {apiKey && !effectiveLoadError && rider ? (
+      {token && !effectiveLoadError && rider ? (
         <div className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-xs font-bold text-catalog-text shadow-sm backdrop-blur sm:left-auto sm:right-3 sm:max-w-xs">
           {riderCoordinateLabel(rider)}
         </div>
