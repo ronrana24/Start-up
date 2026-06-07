@@ -6,12 +6,13 @@ import { cn } from "@presentation/lib/cn";
 import { domainErrorMessage } from "@presentation/lib/domain-error-message";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getAdminUserAnalytics,
   getPricingRuleAudit,
   listAdminProducts,
   listUserPricingRules,
+  removePricingRule,
   setPricingRuleActive,
   upsertUserProductPricingRule,
   type AdminPricingRuleAudit,
@@ -39,6 +40,12 @@ export function AdminUserPricingScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [auditRuleId, setAuditRuleId] = useState<string | null>(null);
   const [auditRows, setAuditRows] = useState<AdminPricingRuleAudit[]>([]);
+  // Drives the brief post-navigation highlight on the Change History section.
+  const [auditHighlighted, setAuditHighlighted] = useState(false);
+  const historyRef = useRef<HTMLElement>(null);
+  // Bumped each time "View history" is clicked so the scroll effect re-runs even
+  // when the same rule's history is reopened.
+  const [historyNavToken, setHistoryNavToken] = useState(0);
 
   const profile = useAdminQuery(
     ["admin", "user-analytics", userId, "all"],
@@ -139,10 +146,50 @@ export function AdminUserPricingScreen() {
     }
   }
 
+  async function removeRule(ruleId: string, productName: string) {
+    const confirmed = window.confirm(
+      `Remove the special price for "${productName}" completely? This buyer will revert to standard batch pricing for this product. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    const removeReason = window.prompt(
+      "Reason for removing this special price",
+    );
+    if (!removeReason?.trim()) return;
+    setError(null);
+    try {
+      await removePricingRule(ruleId, removeReason.trim());
+      // If the removed rule's history panel was open, close it (the rule is gone).
+      if (auditRuleId === ruleId) {
+        setAuditRuleId(null);
+        setAuditRows([]);
+      }
+      await rules.refetch();
+    } catch (err) {
+      setError(domainErrorMessage(err, "Could not remove pricing rule"));
+    }
+  }
+
   async function loadAudit(ruleId: string) {
+    // Expand the Change History section first (it is conditionally rendered),
+    // then bump the nav token so the scroll-into-view effect runs once the
+    // section has mounted.
     setAuditRuleId(ruleId);
+    setHistoryNavToken((token) => token + 1);
     setAuditRows(await getPricingRuleAudit(ruleId));
   }
+
+  // Smooth-scroll to the Change History section and briefly highlight it
+  // whenever "View history" is clicked. Runs after the section mounts/updates,
+  // so a collapsed section is expanded (via auditRuleId) before we scroll.
+  useEffect(() => {
+    if (historyNavToken === 0) return;
+    const node = historyRef.current;
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+    setAuditHighlighted(true);
+    const timer = window.setTimeout(() => setAuditHighlighted(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [historyNavToken]);
 
   if (!userId) {
     return (
@@ -315,20 +362,61 @@ export function AdminUserPricingScreen() {
                     {rule.isActive ? "Active" : "Disabled"}
                   </span>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-catalog-border/60 pt-3">
                   <button
                     type="button"
-                    className="text-xs font-bold text-catalog-green hover:underline"
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-catalog-green-border bg-catalog-green-muted px-3.5 py-2 text-sm font-bold text-catalog-green shadow-sm transition-colors hover:bg-catalog-green hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-catalog-green/40 focus-visible:ring-offset-1"
                     onClick={() => void loadAudit(rule.id)}
                   >
+                    <svg
+                      width={14}
+                      height={14}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.25}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M3 12a9 9 0 1 0 3-6.7" />
+                      <path d="M3 4v5h5" />
+                      <path d="M12 7v5l3 2" />
+                    </svg>
                     View history
                   </button>
                   <button
                     type="button"
-                    className="text-xs font-bold text-catalog-blue hover:underline"
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-catalog-blue/30 bg-catalog-blue-light/40 px-3.5 py-2 text-sm font-bold text-catalog-blue shadow-sm transition-colors hover:bg-catalog-blue hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-catalog-blue/40 focus-visible:ring-offset-1"
                     onClick={() => void toggleRule(rule.id, !rule.isActive)}
                   >
                     {rule.isActive ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    type="button"
+                    className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-bold text-red-600 shadow-sm transition-colors hover:bg-red-600 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40 focus-visible:ring-offset-1"
+                    onClick={() =>
+                      void removeRule(
+                        rule.id,
+                        rule.product?.name ?? rule.productId,
+                      )
+                    }
+                  >
+                    <svg
+                      width={14}
+                      height={14}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2.25}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z" />
+                    </svg>
+                    Remove
                   </button>
                 </div>
               </div>
@@ -343,7 +431,16 @@ export function AdminUserPricingScreen() {
       </div>
 
       {auditRuleId ? (
-        <section className="rounded-xl border border-catalog-border bg-card p-4 shadow-sm">
+        <section
+          ref={historyRef}
+          aria-label="Change history"
+          className={cn(
+            "scroll-mt-24 rounded-xl border bg-card p-4 shadow-sm transition-[box-shadow,border-color] duration-500",
+            auditHighlighted
+              ? "border-catalog-green ring-2 ring-catalog-green/40"
+              : "border-catalog-border",
+          )}
+        >
           <h2 className="text-sm font-bold text-catalog-text">Change history</h2>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[680px] text-left text-sm">

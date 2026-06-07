@@ -955,6 +955,22 @@ export async function setPricingRuleActive(
   );
 }
 
+/**
+ * Permanently removes a buyer's special price for a product. The product
+ * reverts to its batch price for that buyer; the change history is retained
+ * server-side (a final REMOVED audit entry is written before deletion).
+ */
+export async function removePricingRule(
+  ruleId: string,
+  reason: string,
+): Promise<void> {
+  await apiJsonAuthorized<unknown>(
+    apiBaseUrl(),
+    `/api/admin/pricing-rules/${ruleId}`,
+    { method: "DELETE", body: { reason } },
+  );
+}
+
 export async function getPricingRuleAudit(
   ruleId: string,
 ): Promise<AdminPricingRuleAudit[]> {

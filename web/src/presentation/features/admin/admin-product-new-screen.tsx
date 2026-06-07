@@ -1004,10 +1004,22 @@ export function AdminProductNewScreen() {
             </div>
             <button
               type="button"
-              className="text-xs font-bold text-catalog-green hover:underline disabled:cursor-not-allowed disabled:text-catalog-text-muted"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-catalog-green-border bg-catalog-green-muted px-3.5 py-2 text-sm font-bold text-catalog-green shadow-sm transition-colors hover:bg-catalog-green hover:text-white disabled:cursor-not-allowed disabled:border-catalog-border disabled:bg-card disabled:text-catalog-text-muted disabled:shadow-none"
               onClick={addTier}
               disabled={tiers.length >= 3}
             >
+              <svg
+                width={14}
+                height={14}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
               Add tier
             </button>
           </div>

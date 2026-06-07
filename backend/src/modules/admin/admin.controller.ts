@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -122,6 +123,19 @@ export class AdminController {
     @CurrentUser() admin: User,
   ) {
     return this.pricingRules.setRuleActive(id, true, dto.reason, admin);
+  }
+
+  /**
+   * Permanently remove a special price. The product reverts to its batch price
+   * for that buyer; a final REMOVED audit entry is retained.
+   */
+  @Delete('pricing-rules/:id')
+  removePricingRule(
+    @Param('id') id: string,
+    @Body() dto: PricingRuleReasonDto,
+    @CurrentUser() admin: User,
+  ) {
+    return this.pricingRules.removePricingRule(id, dto.reason, admin);
   }
 
   @Get('pricing-rules/:id/audit')

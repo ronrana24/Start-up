@@ -350,6 +350,62 @@ export class PricingRulesService {
     });
   }
 
+  /**
+   * Permanently removes a buyer's special price for a product. Writes a final
+   * REMOVED audit entry inside the same transaction, then deletes the rule.
+   * Because `UserProductPricingAudit.ruleId` is now `ON DELETE SET NULL`, the
+   * full change history (including this final entry) survives the delete.
+   *
+   * The product itself needs no update — `decorateProductsForUser` only applies
+   * *active* rules, so with the rule gone the product automatically reverts to
+   * its batch price for that buyer.
+   */
+  async removePricingRule(ruleId: string, reason: string, admin: User) {
+    const existing = await this.prisma.userProductPricingRule.findUnique({
+      where: { id: ruleId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Pricing rule not found');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.userProductPricingAudit.create({
+        data: {
+          ruleId: existing.id,
+          userId: existing.userId,
+          productId: existing.productId,
+          changedByAdminId: admin.id,
+          action: PricingRuleAuditAction.REMOVED,
+          oldValue: ruleSnapshot(existing),
+          newValue: Prisma.JsonNull,
+          reason,
+        },
+      });
+      // The audit row's ruleId nulls out via the SET NULL FK once the rule is
+      // gone; the history remains queryable by userId/productId.
+      await tx.userProductPricingRule.delete({ where: { id: ruleId } });
+      return {
+        id: existing.id,
+        userId: existing.userId,
+        productId: existing.productId,
+        removed: true,
+      };
+    });
+  }
+
+  /** History for a buyer+product pair, resilient to a deleted rule (ruleId may be null). */
+  auditForUserProduct(userId: string, productId: string) {
+    return this.prisma.userProductPricingAudit.findMany({
+      where: { userId, productId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        changedByAdmin: {
+          select: { id: true, email: true, name: true, businessName: true },
+        },
+      },
+    });
+  }
+
   auditForRule(ruleId: string) {
     return this.prisma.userProductPricingAudit.findMany({
       where: { ruleId },

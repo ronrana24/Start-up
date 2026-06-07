@@ -82,6 +82,7 @@ enum PricingRuleAuditAction {
   UPDATED
   DISABLED
   ENABLED
+  REMOVED
 }
 
 enum ProductCategory {
@@ -89,8 +90,11 @@ enum ProductCategory {
   PARTY_AND_CELEBRATION
   CLEANING_AND_FRAGRANCE
   FOOD_ITEMS_AND_CONDIMENTS
-  TABLEWARE
+  FOOD_CONTAINERS
+  FORK_AND_SPOON
   PACKAGING_AND_CARRY_BAGS
+  PLATE
+  CUP
 }
 
 model User {
@@ -347,13 +351,15 @@ model UserProductPricingRule {
 }
 
 model UserProductPricingAudit {
-  id               String                 @id @default(cuid())
-  ruleId           String
-  rule             UserProductPricingRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  id               String                  @id @default(cuid())
+  // Nullable so a rule can be hard-deleted while its audit trail survives.
+  // Pre-delete we write a final REMOVED entry, then this FK nulls out.
+  ruleId           String?
+  rule             UserProductPricingRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   userId           String
   productId        String
   changedByAdminId String?
-  changedByAdmin   User?                  @relation("PricingAuditsChangedBy", fields: [changedByAdminId], references: [id], onDelete: SetNull)
+  changedByAdmin   User?                   @relation("PricingAuditsChangedBy", fields: [changedByAdminId], references: [id], onDelete: SetNull)
   action           PricingRuleAuditAction
   oldValue         Json?
   newValue         Json?

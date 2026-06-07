@@ -1,6 +1,5 @@
 "use client";
 
-import type { OrderListPeriod } from "@application/ports/order-reader";
 import type { Order, OrderStatus } from "@domain/order";
 import type { Product } from "@domain/product";
 import { Button } from "@presentation/components/ui/button";
@@ -70,11 +69,6 @@ function timeRangeLabel(r: TimeRange): string {
   return "All time";
 }
 
-function orderListPeriodFromTimeRange(range: TimeRange): OrderListPeriod {
-  if (range === "last3Months") return "last_3_months";
-  if (range === "all") return "all_time";
-  return "this_month";
-}
 
 function OrderHistoryHeader() {
   return (
@@ -101,11 +95,17 @@ export function OrderHistoryScreen() {
   const isQueryEnabled = Boolean(userId);
   const { data: catalog } = useProductsQuery();
   const addProduct = useCartStore((s) => s.addProduct);
-  const [timeRange, setTimeRange] = useState<TimeRange>("thisMonth");
-  const orderPeriod = orderListPeriodFromTimeRange(timeRange);
+  // Default to "all" so buyers immediately see their full history — including
+  // past-month orders — rather than landing on an empty current-month view.
+  const [timeRange, setTimeRange] = useState<TimeRange>("all");
+  // Always fetch the buyer's full order history; the time-range chip filters
+  // client-side (filterOrdersByTimeRange). Previously we fetched period-scoped
+  // data, which made the whole screen collapse into the "No orders yet" empty
+  // state whenever the current month had no orders — even if past months did —
+  // and starved the month-over-month trend of the previous period's data.
   const { data, isPending, isError, refetch } = useOrdersQuery(
     userId,
-    orderPeriod,
+    "all_time",
   );
 
   useEffect(() => {
