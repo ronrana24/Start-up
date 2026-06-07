@@ -8,7 +8,6 @@ import { formatMoney } from "@presentation/lib/format-money";
 import { productPath } from "@presentation/lib/product-url";
 import Image from "next/image";
 import Link from "next/link";
-import { HomeMap } from "@presentation/components/home-map";
 import {
   useCallback,
   useEffect,
@@ -531,17 +530,17 @@ export function HomeLanding() {
     <div className="flex flex-col gap-14 pb-10 lg:gap-20 lg:pb-14">
       <section
         aria-label="Featured introduction"
-        className="flex flex-col gap-8 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12"
+        className="flex flex-col items-center gap-8 py-8 lg:gap-12 lg:py-16"
       >
-        <div className="flex min-w-0 flex-col gap-5 text-left">
-          <p className="text-3xl font-extrabold uppercase leading-[1.1] tracking-tight text-heading sm:text-4xl lg:text-[2.6rem]">
+        <div className="flex max-w-3xl flex-col items-center gap-5 text-center">
+          <p className="text-3xl font-extrabold uppercase leading-[1.1] tracking-tight text-heading sm:text-4xl lg:text-[3rem]">
             {heroHeadline}
           </p>
           <p className="max-w-xl text-base text-secondary sm:text-lg">
             Stock up on plates, cutlery, drinkware, and packaging from a single
             catalog—made for teams that need trusted quality on every delivery.
           </p>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap justify-center gap-3 mt-4">
             <LinkButton href="/catalog" variant="primary">
               Browse Catalog
             </LinkButton>
@@ -549,9 +548,6 @@ export function HomeLanding() {
               Order Now
             </LinkButton>
           </div>
-        </div>
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-default bg-primary-light shadow-lg lg:aspect-square lg:max-h-[min(28rem,50vh)]">
-          <HomeMap />
         </div>
       </section>
 
